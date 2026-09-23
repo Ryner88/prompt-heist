@@ -24,7 +24,9 @@ The current prototype supports a complete three-round local pass-and-play missio
 - Time, suspicion, and resource meters
 - Three action plans in each of three rounds
 - Private player voting with majority and deterministic tie resolution
+- Private once-per-match Informant sabotage
 - Deterministic success calculations and mission consequences
+- Immediate mission failure at zero time, seven suspicion, or zero resources
 - Final mission outcome summary
 - New-game reset from the mission summary
 

@@ -28,6 +28,10 @@ var suspicion := 1
 var resources := 7
 var votes: Dictionary = {}
 var round_history: Array[Dictionary] = []
+var informant_sabotage_used := false
+var informant_sabotage_pending := false
+var mission_failed := false
+var failure_reason := ""
 var mission := {
 	"title": "The Neon Vault",
 	"objective": "Recover a stolen prototype from a private technology expo.",
@@ -62,6 +66,10 @@ func reset_game() -> void:
 	resources = 7
 	votes.clear()
 	round_history.clear()
+	informant_sabotage_used = false
+	informant_sabotage_pending = false
+	mission_failed = false
+	failure_reason = ""
 
 func add_player(display_name: String) -> Dictionary:
 	var clean_name := display_name.strip_edges()
@@ -140,6 +148,17 @@ func cast_vote(player_id: int, plan_id: String) -> Dictionary:
 	votes[player_id] = plan_id
 	return {"ok": true, "complete": votes.size() == players.size()}
 
+func arm_informant_sabotage(player_id: int) -> Dictionary:
+	if phase != Phase.VOTING:
+		return {"ok": false, "error": "Sabotage is only available during private planning."}
+	if not is_informant(player_id):
+		return {"ok": false, "error": "Only the Informant can sabotage the mission."}
+	if informant_sabotage_used:
+		return {"ok": false, "error": "Sabotage has already been used this match."}
+	informant_sabotage_used = true
+	informant_sabotage_pending = true
+	return {"ok": true}
+
 func resolve_vote() -> Dictionary:
 	if phase != Phase.VOTING or votes.size() != players.size():
 		return {"ok": false, "error": "Every player must vote before resolution."}
@@ -183,6 +202,16 @@ func resolve_vote() -> Dictionary:
 		suspicion = mini(MAX_SUSPICION, suspicion + selected_plan.risk + 1)
 		resources = maxi(0, resources - 1)
 
+	var sabotage_applied := informant_sabotage_pending
+	if sabotage_applied:
+		suspicion = mini(MAX_SUSPICION, suspicion + 2)
+		informant_sabotage_pending = false
+
+	_evaluate_mission_failure()
+	var consequence := _build_consequence(selected_plan, succeeded)
+	if sabotage_applied:
+		consequence += " An unexplained complication raises suspicion by 2."
+
 	var result := {
 		"ok": true,
 		"round": current_round,
@@ -191,7 +220,10 @@ func resolve_vote() -> Dictionary:
 		"was_tie": leaders.size() > 1,
 		"score": score,
 		"success": succeeded,
-		"consequence": _build_consequence(selected_plan, succeeded),
+		"sabotage_applied": sabotage_applied,
+		"consequence": consequence,
+		"mission_failed": mission_failed,
+		"failure_reason": failure_reason,
 	}
 	round_history.append(result)
 	phase = Phase.RESOLUTION
@@ -200,7 +232,7 @@ func resolve_vote() -> Dictionary:
 func advance_after_resolution() -> bool:
 	if phase != Phase.RESOLUTION:
 		return false
-	if current_round >= TOTAL_ROUNDS:
+	if mission_failed or current_round >= TOTAL_ROUNDS:
 		phase = Phase.FINISHED
 		return false
 	current_round += 1
@@ -221,7 +253,18 @@ func successful_rounds() -> int:
 	return total
 
 func mission_succeeded() -> bool:
-	return successful_rounds() >= 2 and time_remaining > 0 and suspicion < MAX_SUSPICION
+	return not mission_failed and successful_rounds() >= 2
+
+func _evaluate_mission_failure() -> void:
+	if time_remaining <= 0:
+		mission_failed = true
+		failure_reason = "The crew ran out of time."
+	elif suspicion >= 7:
+		mission_failed = true
+		failure_reason = "Security identified the crew."
+	elif resources <= 0:
+		mission_failed = true
+		failure_reason = "The crew exhausted its operational resources."
 
 func _build_consequence(plan: Dictionary, succeeded: bool) -> String:
 	if succeeded:

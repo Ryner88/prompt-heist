@@ -300,12 +300,26 @@ func _show_voting() -> void:
 	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	instruction.add_theme_font_size_override("font_size", 21)
 	content.add_child(instruction)
+	if game.is_informant(voter.id) and not game.informant_sabotage_used:
+		var sabotage := Button.new()
+		sabotage.text = "Sabotage this round"
+		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
+		sabotage.pressed.connect(_arm_sabotage.bind(voter.id, sabotage))
+		content.add_child(sabotage)
 	var cards := HBoxContainer.new()
 	cards.add_theme_constant_override("separation", 14)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
 	for plan in game.get_current_plans():
 		cards.add_child(_make_plan_card(plan, true))
+
+func _arm_sabotage(player_id: int, button: Button) -> void:
+	var result := game.arm_informant_sabotage(player_id)
+	if not result.ok:
+		status_label.text = result.error
+		return
+	button.text = "Sabotage armed"
+	button.disabled = true
 
 func _cast_vote(plan_id: String) -> void:
 	var voter: Dictionary = game.players[vote_index]
@@ -351,9 +365,15 @@ func _show_resolution() -> void:
 	consequence.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	consequence.add_theme_font_size_override("font_size", 20)
 	content.add_child(consequence)
+	if latest_result.mission_failed:
+		var failure := Label.new()
+		failure.text = latest_result.failure_reason
+		failure.add_theme_font_size_override("font_size", 20)
+		failure.add_theme_color_override("font_color", Color("ef6f6c"))
+		content.add_child(failure)
 
 	var continue_button := Button.new()
-	continue_button.text = "Continue to round %d" % (game.current_round + 1) if game.current_round < GameState.TOTAL_ROUNDS else "View mission outcome"
+	continue_button.text = "Continue to round %d" % (game.current_round + 1) if game.current_round < GameState.TOTAL_ROUNDS and not game.mission_failed else "View mission outcome"
 	continue_button.pressed.connect(_continue_after_resolution)
 	content.add_child(continue_button)
 
@@ -365,7 +385,7 @@ func _continue_after_resolution() -> void:
 
 func _show_mission_summary() -> void:
 	_clear_content()
-	subtitle_label.text = "MISSION COMPLETE • THREE ROUNDS RESOLVED"
+	subtitle_label.text = "MISSION COMPLETE • %d ROUND%s RESOLVED" % [game.round_history.size(), "" if game.round_history.size() == 1 else "S"]
 	_add_meters()
 	var won := game.mission_succeeded()
 	var headline := Label.new()
@@ -379,7 +399,7 @@ func _show_mission_summary() -> void:
 	summary.add_theme_font_size_override("font_size", 21)
 	content.add_child(summary)
 	var rule := Label.new()
-	rule.text = "Victory requires at least two successful rounds, time remaining, and suspicion below maximum."
+	rule.text = game.failure_reason if game.mission_failed else "Victory requires at least two successful rounds without crossing a mission-failure threshold."
 	rule.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(rule)
 
