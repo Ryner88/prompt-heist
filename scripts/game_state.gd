@@ -14,15 +14,62 @@ enum Phase {
 
 const MIN_PLAYERS := 3
 const MAX_PLAYERS := 6
+const TOTAL_ROUNDS := 3
+const MAX_TIME := 12
+const MAX_SUSPICION := 10
+const MAX_RESOURCES := 8
 
 var phase: Phase = Phase.LOBBY
 var players: Array[Dictionary] = []
 var informant_player_id := -1
+var current_round := 1
+var time_remaining := 12
+var suspicion := 1
+var resources := 7
+var votes: Dictionary = {}
+var round_history: Array[Dictionary] = []
+var informant_sabotage_used := false
+var informant_sabotage_pending := false
+var mission_failed := false
+var failure_reason := ""
 var mission := {
 	"title": "The Neon Vault",
 	"objective": "Recover a stolen prototype from a private technology expo.",
 	"complication": "Security changes its patrol pattern every sixty seconds.",
 }
+
+var round_plans: Array[Array] = [
+	[
+		{"id": "ghost", "title": "Ghost the Service Hall", "description": "Slip through staff corridors while the expo changes shifts.", "time_cost": 3, "resource_cost": 1, "base_success": 68, "risk": 1},
+		{"id": "spoof", "title": "Spoof a Vendor Badge", "description": "Clone credentials and walk through the front checkpoint.", "time_cost": 2, "resource_cost": 2, "base_success": 72, "risk": 2},
+		{"id": "blackout", "title": "Stage a Blackout", "description": "Cut local power and move under emergency lighting.", "time_cost": 1, "resource_cost": 3, "base_success": 78, "risk": 3},
+	],
+	[
+		{"id": "drone", "title": "Hijack the Camera Drone", "description": "Loop its feed and use it to scout the prototype floor.", "time_cost": 2, "resource_cost": 2, "base_success": 73, "risk": 2},
+		{"id": "decoy", "title": "Trigger a Decoy Alarm", "description": "Pull security toward the loading bay before crossing the atrium.", "time_cost": 1, "resource_cost": 3, "base_success": 76, "risk": 3},
+		{"id": "social", "title": "Work the VIP Crowd", "description": "Blend in, trade favors, and learn the vault access phrase.", "time_cost": 3, "resource_cost": 1, "base_success": 70, "risk": 1},
+	],
+	[
+		{"id": "freight", "title": "Escape via Freight Lift", "description": "Move the prototype inside a sealed equipment case.", "time_cost": 2, "resource_cost": 2, "base_success": 74, "risk": 2},
+		{"id": "rooftop", "title": "Take the Rooftop Route", "description": "Climb above the patrol grid and cross to the parking tower.", "time_cost": 3, "resource_cost": 1, "base_success": 69, "risk": 1},
+		{"id": "motorcade", "title": "Bluff the Motorcade", "description": "Spend the last favors on an official-looking extraction.", "time_cost": 1, "resource_cost": 3, "base_success": 79, "risk": 3},
+	],
+]
+
+func reset_game() -> void:
+	phase = Phase.LOBBY
+	players.clear()
+	informant_player_id = -1
+	current_round = 1
+	time_remaining = MAX_TIME
+	suspicion = 1
+	resources = 7
+	votes.clear()
+	round_history.clear()
+	informant_sabotage_used = false
+	informant_sabotage_pending = false
+	mission_failed = false
+	failure_reason = ""
 
 func add_player(display_name: String) -> Dictionary:
 	var clean_name := display_name.strip_edges()
@@ -79,6 +126,150 @@ func advance_to_briefing() -> void:
 	if phase == Phase.ROLE_REVEAL:
 		phase = Phase.BRIEFING
 
+func begin_planning() -> void:
+	if phase == Phase.BRIEFING or phase == Phase.RESOLUTION:
+		phase = Phase.PLANNING
+
+func get_current_plans() -> Array:
+	return round_plans[current_round - 1]
+
+func begin_voting() -> void:
+	if phase == Phase.PLANNING:
+		votes.clear()
+		phase = Phase.VOTING
+
+func cast_vote(player_id: int, plan_id: String) -> Dictionary:
+	if phase != Phase.VOTING:
+		return {"ok": false, "error": "Voting is not active."}
+	if votes.has(player_id):
+		return {"ok": false, "error": "That player has already voted."}
+	if get_plan(plan_id).is_empty():
+		return {"ok": false, "error": "That plan is not available."}
+	votes[player_id] = plan_id
+	return {"ok": true, "complete": votes.size() == players.size()}
+
+func arm_informant_sabotage(player_id: int) -> Dictionary:
+	if phase != Phase.VOTING:
+		return {"ok": false, "error": "Sabotage is only available during private planning."}
+	if not is_informant(player_id):
+		return {"ok": false, "error": "Only the Informant can sabotage the mission."}
+	if informant_sabotage_used:
+		return {"ok": false, "error": "Sabotage has already been used this match."}
+	informant_sabotage_used = true
+	informant_sabotage_pending = true
+	return {"ok": true}
+
+func resolve_vote() -> Dictionary:
+	if phase != Phase.VOTING or votes.size() != players.size():
+		return {"ok": false, "error": "Every player must vote before resolution."}
+
+	var tallies: Dictionary = {}
+	for plan in get_current_plans():
+		tallies[plan.id] = 0
+	for plan_id in votes.values():
+		tallies[plan_id] += 1
+
+	var highest_votes := 0
+	var leaders: Array[String] = []
+	for plan in get_current_plans():
+		var count: int = tallies[plan.id]
+		if count > highest_votes:
+			highest_votes = count
+			leaders.assign([plan.id])
+		elif count == highest_votes:
+			leaders.append(plan.id)
+
+	# Ties are deterministic: the lowest-risk tied plan wins, then card order.
+	var selected_id: String = leaders[0]
+	for plan in get_current_plans():
+		if plan.id in leaders and plan.risk < get_plan(selected_id).risk:
+			selected_id = plan.id
+
+	var selected_plan := get_plan(selected_id)
+	var score: int = selected_plan.base_success + resources * 3 - suspicion * 4
+	if resources < selected_plan.resource_cost:
+		score -= (selected_plan.resource_cost - resources) * 15
+	if time_remaining < selected_plan.time_cost:
+		score -= (selected_plan.time_cost - time_remaining) * 20
+	score = clampi(score, 5, 95)
+	var succeeded := score >= 70
+
+	time_remaining = maxi(0, time_remaining - selected_plan.time_cost)
+	resources = maxi(0, resources - selected_plan.resource_cost)
+	if succeeded:
+		suspicion = maxi(0, suspicion + selected_plan.risk - 2)
+	else:
+		suspicion = mini(MAX_SUSPICION, suspicion + selected_plan.risk + 1)
+		resources = maxi(0, resources - 1)
+
+	var sabotage_applied := informant_sabotage_pending
+	if sabotage_applied:
+		suspicion = mini(MAX_SUSPICION, suspicion + 2)
+		informant_sabotage_pending = false
+
+	_evaluate_mission_failure()
+	var consequence := _build_consequence(selected_plan, succeeded)
+	if sabotage_applied:
+		consequence += " An unexplained complication raises suspicion by 2."
+
+	var result := {
+		"ok": true,
+		"round": current_round,
+		"plan": selected_plan,
+		"tallies": tallies,
+		"was_tie": leaders.size() > 1,
+		"score": score,
+		"success": succeeded,
+		"sabotage_applied": sabotage_applied,
+		"consequence": consequence,
+		"mission_failed": mission_failed,
+		"failure_reason": failure_reason,
+	}
+	round_history.append(result)
+	phase = Phase.RESOLUTION
+	return result
+
+func advance_after_resolution() -> bool:
+	if phase != Phase.RESOLUTION:
+		return false
+	if mission_failed or current_round >= TOTAL_ROUNDS:
+		phase = Phase.FINISHED
+		return false
+	current_round += 1
+	begin_planning()
+	return true
+
+func get_plan(plan_id: String) -> Dictionary:
+	for plan in get_current_plans():
+		if plan.id == plan_id:
+			return plan
+	return {}
+
+func successful_rounds() -> int:
+	var total := 0
+	for result in round_history:
+		if result.success:
+			total += 1
+	return total
+
+func mission_succeeded() -> bool:
+	return not mission_failed and successful_rounds() >= 2
+
+func _evaluate_mission_failure() -> void:
+	if time_remaining <= 0:
+		mission_failed = true
+		failure_reason = "The crew ran out of time."
+	elif suspicion >= 7:
+		mission_failed = true
+		failure_reason = "Security identified the crew."
+	elif resources <= 0:
+		mission_failed = true
+		failure_reason = "The crew exhausted its operational resources."
+
+func _build_consequence(plan: Dictionary, succeeded: bool) -> String:
+	if succeeded:
+		return "%s works. The crew stays ahead of security and preserves momentum." % plan.title
+	return "%s breaks down under pressure. Security closes in and an extra resource is lost." % plan.title
+
 func is_informant(player_id: int) -> bool:
 	return player_id == informant_player_id
-
