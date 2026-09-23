@@ -382,3 +382,16 @@ func _show_mission_summary() -> void:
 	rule.text = "Victory requires at least two successful rounds, time remaining, and suspicion below maximum."
 	rule.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(rule)
+
+	var new_game_button := Button.new()
+	new_game_button.text = "Start a new game"
+	new_game_button.pressed.connect(_start_new_game)
+	content.add_child(new_game_button)
+
+func _start_new_game() -> void:
+	game.reset_game()
+	reveal_index = 0
+	role_is_visible = false
+	vote_index = 0
+	latest_result.clear()
+	_show_lobby()

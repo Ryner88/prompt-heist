@@ -52,6 +52,17 @@ var round_plans: Array[Array] = [
 	],
 ]
 
+func reset_game() -> void:
+	phase = Phase.LOBBY
+	players.clear()
+	informant_player_id = -1
+	current_round = 1
+	time_remaining = MAX_TIME
+	suspicion = 1
+	resources = 7
+	votes.clear()
+	round_history.clear()
+
 func add_player(display_name: String) -> Dictionary:
 	var clean_name := display_name.strip_edges()
 	if phase != Phase.LOBBY:

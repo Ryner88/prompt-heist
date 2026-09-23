@@ -26,6 +26,7 @@ The current prototype supports a complete three-round local pass-and-play missio
 - Private player voting with majority and deterministic tie resolution
 - Deterministic success calculations and mission consequences
 - Final mission outcome summary
+- New-game reset from the mission summary
 
 ## Next milestone
 
