@@ -28,8 +28,10 @@ The current prototype supports a complete three-round local pass-and-play missio
 - Deterministic success calculations and mission consequences
 - Immediate mission failure at zero time, seven suspicion, or zero resources
 - Final mission outcome summary
+- Private accusation voting with role-dependent endings
+- Complete match recap with revealed roles and accusation totals
 - New-game reset from the mission summary
 
 ## Next milestone
 
-Add the final escape decision, Informant accusation, winner determination, and narrative recap. After the local match is fun and testable, add real multiplayer rooms and server-side OpenAI calls.
+Expand the completed local game loop with real multiplayer rooms, server-authoritative state, and server-side OpenAI narration.

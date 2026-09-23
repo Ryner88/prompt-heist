@@ -32,6 +32,12 @@ var informant_sabotage_used := false
 var informant_sabotage_pending := false
 var mission_failed := false
 var failure_reason := ""
+var accusation_votes: Dictionary = {}
+var accusation_totals: Dictionary = {}
+var accused_player_id := -1
+var accusation_tied := false
+var winner := ""
+var roles_revealed := false
 var mission := {
 	"title": "The Neon Vault",
 	"objective": "Recover a stolen prototype from a private technology expo.",
@@ -70,6 +76,12 @@ func reset_game() -> void:
 	informant_sabotage_pending = false
 	mission_failed = false
 	failure_reason = ""
+	accusation_votes.clear()
+	accusation_totals.clear()
+	accused_player_id = -1
+	accusation_tied = false
+	winner = ""
+	roles_revealed = false
 
 func add_player(display_name: String) -> Dictionary:
 	var clean_name := display_name.strip_edges()
@@ -232,12 +244,86 @@ func resolve_vote() -> Dictionary:
 func advance_after_resolution() -> bool:
 	if phase != Phase.RESOLUTION:
 		return false
-	if mission_failed or current_round >= TOTAL_ROUNDS:
+	if mission_failed:
+		winner = "Informant" if informant_player_id != -1 else "Nobody"
+		roles_revealed = true
 		phase = Phase.FINISHED
+		return false
+	if current_round >= TOTAL_ROUNDS:
+		if not mission_succeeded():
+			mission_failed = true
+			failure_reason = "The crew failed too many mission plans."
+			winner = "Informant" if informant_player_id != -1 else "Nobody"
+			roles_revealed = true
+			phase = Phase.FINISHED
+		elif informant_player_id != -1:
+			accusation_votes.clear()
+			accusation_totals.clear()
+			phase = Phase.ACCUSATION
+		else:
+			winner = "Everyone"
+			roles_revealed = true
+			phase = Phase.FINISHED
 		return false
 	current_round += 1
 	begin_planning()
 	return true
+
+func get_accusation_voters() -> Array[Dictionary]:
+	var eligible: Array[Dictionary] = []
+	for player in players:
+		if not is_informant(player.id):
+			eligible.append(player)
+	return eligible
+
+func cast_accusation_vote(voter_id: int, suspect_id: int) -> Dictionary:
+	if phase != Phase.ACCUSATION:
+		return {"ok": false, "error": "Accusation voting is not active."}
+	if is_informant(voter_id):
+		return {"ok": false, "error": "The Informant cannot cast an accusation vote."}
+	if voter_id == suspect_id:
+		return {"ok": false, "error": "Players cannot accuse themselves."}
+	if get_player(voter_id).is_empty() or get_player(suspect_id).is_empty():
+		return {"ok": false, "error": "That player is not in this match."}
+	if accusation_votes.has(voter_id):
+		return {"ok": false, "error": "That player has already voted."}
+	accusation_votes[voter_id] = suspect_id
+	return {"ok": true, "complete": accusation_votes.size() == get_accusation_voters().size()}
+
+func resolve_accusation() -> Dictionary:
+	if phase != Phase.ACCUSATION or accusation_votes.size() != get_accusation_voters().size():
+		return {"ok": false, "error": "Every eligible player must vote before resolution."}
+
+	accusation_totals.clear()
+	for player in players:
+		accusation_totals[player.id] = 0
+	for suspect_id in accusation_votes.values():
+		accusation_totals[suspect_id] += 1
+
+	var highest_votes := 0
+	var leaders: Array[int] = []
+	for player in players:
+		var total: int = accusation_totals[player.id]
+		if total > highest_votes:
+			highest_votes = total
+			leaders.assign([player.id])
+		elif total == highest_votes and total > 0:
+			leaders.append(player.id)
+
+	accusation_tied = leaders.size() != 1
+	accused_player_id = -1 if accusation_tied else leaders[0]
+	var correct := not accusation_tied and accused_player_id == informant_player_id
+	winner = "Crew" if correct else "Informant"
+	roles_revealed = true
+	phase = Phase.FINISHED
+	return {
+		"ok": true,
+		"tied": accusation_tied,
+		"accused_player_id": accused_player_id,
+		"correct": correct,
+		"winner": winner,
+		"totals": accusation_totals.duplicate(),
+	}
 
 func get_plan(plan_id: String) -> Dictionary:
 	for plan in get_current_plans():
@@ -255,6 +341,12 @@ func successful_rounds() -> int:
 func mission_succeeded() -> bool:
 	return not mission_failed and successful_rounds() >= 2
 
+func get_player(player_id: int) -> Dictionary:
+	for player in players:
+		if player.id == player_id:
+			return player
+	return {}
+
 func _evaluate_mission_failure() -> void:
 	if time_remaining <= 0:
 		mission_failed = true
@@ -265,6 +357,8 @@ func _evaluate_mission_failure() -> void:
 	elif resources <= 0:
 		mission_failed = true
 		failure_reason = "The crew exhausted its operational resources."
+	if mission_failed:
+		winner = "Informant" if informant_player_id != -1 else "Nobody"
 
 func _build_consequence(plan: Dictionary, succeeded: bool) -> String:
 	if succeeded:
