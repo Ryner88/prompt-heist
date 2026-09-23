@@ -14,6 +14,8 @@ var status_label: Label
 var name_input: LineEdit
 var roster: VBoxContainer
 var start_button: Button
+var vote_index := 0
+var latest_result: Dictionary = {}
 
 func _ready() -> void:
 	rng.randomize()
@@ -198,7 +200,185 @@ func _show_briefing() -> void:
 	content.add_child(complication)
 
 	var next_step := Label.new()
-	next_step.text = "Milestone complete: lobby → role assignment → private reveal → briefing."
+	next_step.text = "Three decisions stand between the crew and a clean extraction. Every vote matters."
 	next_step.add_theme_font_size_override("font_size", 18)
 	next_step.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(next_step)
+
+	var continue_button := Button.new()
+	continue_button.text = "Continue to planning"
+	continue_button.pressed.connect(_begin_planning)
+	content.add_child(continue_button)
+
+func _begin_planning() -> void:
+	game.begin_planning()
+	_show_planning()
+
+func _add_meters() -> void:
+	var meters := HBoxContainer.new()
+	meters.add_theme_constant_override("separation", 24)
+	content.add_child(meters)
+	meters.add_child(_make_meter("TIME", game.time_remaining, GameState.MAX_TIME, Color("56cfe1")))
+	meters.add_child(_make_meter("SUSPICION", game.suspicion, GameState.MAX_SUSPICION, Color("ef6f6c")))
+	meters.add_child(_make_meter("RESOURCES", game.resources, GameState.MAX_RESOURCES, Color("f4c95d")))
+
+func _make_meter(label_text: String, value: int, maximum: int, color: Color) -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var label := Label.new()
+	label.text = "%s  %d/%d" % [label_text, value, maximum]
+	label.add_theme_color_override("font_color", color)
+	box.add_child(label)
+	var bar := ProgressBar.new()
+	bar.max_value = maximum
+	bar.value = value
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(0, 16)
+	box.add_child(bar)
+	return box
+
+func _show_planning() -> void:
+	_clear_content()
+	subtitle_label.text = "ROUND %d OF %d • PLANNING" % [game.current_round, GameState.TOTAL_ROUNDS]
+	_add_meters()
+
+	var prompt := Label.new()
+	prompt.text = "Review the options together. Costs always apply; risk shapes suspicion."
+	prompt.add_theme_font_size_override("font_size", 18)
+	content.add_child(prompt)
+
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 14)
+	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(cards)
+	for plan in game.get_current_plans():
+		cards.add_child(_make_plan_card(plan, false))
+
+	var vote_button := Button.new()
+	vote_button.text = "Begin private voting"
+	vote_button.pressed.connect(_begin_voting)
+	content.add_child(vote_button)
+
+func _make_plan_card(plan: Dictionary, voting: bool) -> VBoxContainer:
+	var card := VBoxContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_constant_override("separation", 8)
+	var heading := Label.new()
+	heading.text = plan.title
+	heading.add_theme_font_size_override("font_size", 21)
+	heading.add_theme_color_override("font_color", Color("f4c95d"))
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card.add_child(heading)
+	var description := Label.new()
+	description.text = plan.description
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.add_child(description)
+	var costs := Label.new()
+	costs.text = "Time −%d  •  Resources −%d  •  Risk %d" % [plan.time_cost, plan.resource_cost, plan.risk]
+	costs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	costs.add_theme_color_override("font_color", Color("8fa3bf"))
+	card.add_child(costs)
+	if voting:
+		var choose := Button.new()
+		choose.text = "Vote for this plan"
+		choose.pressed.connect(_cast_vote.bind(plan.id))
+		card.add_child(choose)
+	return card
+
+func _begin_voting() -> void:
+	game.begin_voting()
+	vote_index = 0
+	_show_voting()
+
+func _show_voting() -> void:
+	_clear_content()
+	subtitle_label.text = "ROUND %d • SECRET BALLOT" % game.current_round
+	var voter: Dictionary = game.players[vote_index]
+	var instruction := Label.new()
+	instruction.text = "Pass the screen to %s. Choose one plan; votes stay hidden until everyone finishes." % voter.name
+	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	instruction.add_theme_font_size_override("font_size", 21)
+	content.add_child(instruction)
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 14)
+	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(cards)
+	for plan in game.get_current_plans():
+		cards.add_child(_make_plan_card(plan, true))
+
+func _cast_vote(plan_id: String) -> void:
+	var voter: Dictionary = game.players[vote_index]
+	var result := game.cast_vote(voter.id, plan_id)
+	if not result.ok:
+		status_label.text = result.error
+		return
+	vote_index += 1
+	if result.complete:
+		latest_result = game.resolve_vote()
+		_show_resolution()
+	else:
+		_show_voting()
+
+func _show_resolution() -> void:
+	_clear_content()
+	subtitle_label.text = "ROUND %d • MISSION CONSEQUENCES" % latest_result.round
+	_add_meters()
+	var outcome := Label.new()
+	outcome.text = "SUCCESS" if latest_result.success else "FAILURE"
+	outcome.add_theme_font_size_override("font_size", 36)
+	outcome.add_theme_color_override("font_color", Color("62d6a7") if latest_result.success else Color("ef6f6c"))
+	content.add_child(outcome)
+
+	var selected := Label.new()
+	selected.text = "Selected plan: %s  •  Deterministic score: %d/100" % [latest_result.plan.title, latest_result.score]
+	selected.add_theme_font_size_override("font_size", 22)
+	content.add_child(selected)
+	var tally := Label.new()
+	var tally_parts: Array[String] = []
+	for plan in game.get_current_plans():
+		tally_parts.append("%s: %d" % [plan.title, latest_result.tallies[plan.id]])
+	tally.text = "Vote tally — %s" % "  •  ".join(tally_parts)
+	tally.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(tally)
+	if latest_result.was_tie:
+		var tie_note := Label.new()
+		tie_note.text = "Tie resolved by the standing rule: lowest-risk tied plan, then card order."
+		tie_note.add_theme_color_override("font_color", Color("f4c95d"))
+		content.add_child(tie_note)
+	var consequence := Label.new()
+	consequence.text = latest_result.consequence
+	consequence.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	consequence.add_theme_font_size_override("font_size", 20)
+	content.add_child(consequence)
+
+	var continue_button := Button.new()
+	continue_button.text = "Continue to round %d" % (game.current_round + 1) if game.current_round < GameState.TOTAL_ROUNDS else "View mission outcome"
+	continue_button.pressed.connect(_continue_after_resolution)
+	content.add_child(continue_button)
+
+func _continue_after_resolution() -> void:
+	if game.advance_after_resolution():
+		_show_planning()
+	else:
+		_show_mission_summary()
+
+func _show_mission_summary() -> void:
+	_clear_content()
+	subtitle_label.text = "MISSION COMPLETE • THREE ROUNDS RESOLVED"
+	_add_meters()
+	var won := game.mission_succeeded()
+	var headline := Label.new()
+	headline.text = "THE CREW ESCAPES" if won else "THE HEIST COLLAPSES"
+	headline.add_theme_font_size_override("font_size", 36)
+	headline.add_theme_color_override("font_color", Color("62d6a7") if won else Color("ef6f6c"))
+	content.add_child(headline)
+	var summary := Label.new()
+	summary.text = "%d of %d plans succeeded. Final time: %d. Final suspicion: %d. Resources left: %d." % [game.successful_rounds(), GameState.TOTAL_ROUNDS, game.time_remaining, game.suspicion, game.resources]
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary.add_theme_font_size_override("font_size", 21)
+	content.add_child(summary)
+	var rule := Label.new()
+	rule.text = "Victory requires at least two successful rounds, time remaining, and suspicion below maximum."
+	rule.add_theme_color_override("font_color", Color("8fa3bf"))
+	content.add_child(rule)

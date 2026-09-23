@@ -9,7 +9,7 @@ This is the first playable foundation for **Prompt Heist: Trust No One**, built 
 3. Press **F6/F5** to run the project.
 4. Add at least three players and select **Start heist**.
 
-The current prototype supports local pass-and-play role reveals. With four or more players, exactly one player becomes the hidden Informant. Three-player matches run in cooperative mode.
+The current prototype supports a complete three-round local pass-and-play mission. With four or more players, exactly one player becomes the hidden Informant. Three-player matches run in cooperative mode.
 
 ## Current milestone
 
@@ -21,8 +21,12 @@ The current prototype supports local pass-and-play role reveals. With four or mo
 - Optional hidden Informant
 - Private pass-and-play role reveal
 - First mission briefing
+- Time, suspicion, and resource meters
+- Three action plans in each of three rounds
+- Private player voting with majority and deterministic tie resolution
+- Deterministic success calculations and mission consequences
+- Final mission outcome summary
 
 ## Next milestone
 
-Implement the planning round with three action cards, team voting, deterministic resolution, and suspicion/time/resource meters. After the local match is fun and testable, add real multiplayer rooms and server-side OpenAI calls.
-
+Add the final escape decision, Informant accusation, winner determination, and narrative recap. After the local match is fun and testable, add real multiplayer rooms and server-side OpenAI calls.
