@@ -16,6 +16,7 @@ var roster: VBoxContainer
 var start_button: Button
 var vote_index := 0
 var latest_result: Dictionary = {}
+var accusation_index := 0
 
 func _ready() -> void:
 	rng.randomize()
@@ -373,35 +374,110 @@ func _show_resolution() -> void:
 		content.add_child(failure)
 
 	var continue_button := Button.new()
-	continue_button.text = "Continue to round %d" % (game.current_round + 1) if game.current_round < GameState.TOTAL_ROUNDS and not game.mission_failed else "View mission outcome"
+	if game.current_round < GameState.TOTAL_ROUNDS and not game.mission_failed:
+		continue_button.text = "Continue to round %d" % (game.current_round + 1)
+	elif game.informant_player_id != -1 and game.mission_succeeded():
+		continue_button.text = "Proceed to accusation"
+	else:
+		continue_button.text = "View mission outcome"
 	continue_button.pressed.connect(_continue_after_resolution)
 	content.add_child(continue_button)
 
 func _continue_after_resolution() -> void:
 	if game.advance_after_resolution():
 		_show_planning()
+	elif game.phase == GameState.Phase.ACCUSATION:
+		accusation_index = 0
+		_show_accusation()
 	else:
 		_show_mission_summary()
+
+func _show_accusation() -> void:
+	_clear_content()
+	subtitle_label.text = "FINAL ACCUSATION • PRIVATE VOTE"
+	var voters := game.get_accusation_voters()
+	var voter: Dictionary = voters[accusation_index]
+	var instruction := Label.new()
+	instruction.text = "Pass the screen to %s. Who was the Informant?" % voter.name
+	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	instruction.add_theme_font_size_override("font_size", 24)
+	content.add_child(instruction)
+
+	var privacy := Label.new()
+	privacy.text = "Your accusation is private. You cannot vote for yourself."
+	privacy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	privacy.add_theme_color_override("font_color", Color("8fa3bf"))
+	content.add_child(privacy)
+
+	for suspect in game.players:
+		if suspect.id == voter.id:
+			continue
+		var accuse_button := Button.new()
+		accuse_button.text = "Accuse %s" % suspect.name
+		accuse_button.pressed.connect(_cast_accusation.bind(voter.id, suspect.id))
+		content.add_child(accuse_button)
+
+func _cast_accusation(voter_id: int, suspect_id: int) -> void:
+	var result := game.cast_accusation_vote(voter_id, suspect_id)
+	if not result.ok:
+		status_label.text = result.error
+		return
+	accusation_index += 1
+	if result.complete:
+		game.resolve_accusation()
+		_show_mission_summary()
+	else:
+		_show_accusation()
 
 func _show_mission_summary() -> void:
 	_clear_content()
 	subtitle_label.text = "MISSION COMPLETE • %d ROUND%s RESOLVED" % [game.round_history.size(), "" if game.round_history.size() == 1 else "S"]
 	_add_meters()
-	var won := game.mission_succeeded()
 	var headline := Label.new()
-	headline.text = "THE CREW ESCAPES" if won else "THE HEIST COLLAPSES"
+	match game.winner:
+		"Crew": headline.text = "THE CREW WINS"
+		"Informant": headline.text = "THE INFORMANT WINS"
+		"Everyone": headline.text = "EVERYONE WINS"
+		_: headline.text = "THE CREW LOSES"
 	headline.add_theme_font_size_override("font_size", 36)
-	headline.add_theme_color_override("font_color", Color("62d6a7") if won else Color("ef6f6c"))
+	headline.add_theme_color_override("font_color", Color("62d6a7") if game.winner == "Crew" or game.winner == "Everyone" else Color("ef6f6c"))
 	content.add_child(headline)
 	var summary := Label.new()
 	summary.text = "%d of %d plans succeeded. Final time: %d. Final suspicion: %d. Resources left: %d." % [game.successful_rounds(), GameState.TOTAL_ROUNDS, game.time_remaining, game.suspicion, game.resources]
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.add_theme_font_size_override("font_size", 21)
 	content.add_child(summary)
-	var rule := Label.new()
-	rule.text = game.failure_reason if game.mission_failed else "Victory requires at least two successful rounds without crossing a mission-failure threshold."
-	rule.add_theme_color_override("font_color", Color("8fa3bf"))
-	content.add_child(rule)
+	var recap_lines: Array[String] = []
+	recap_lines.append("WINNING SIDE: %s" % game.winner.to_upper())
+	if game.mission_failed:
+		recap_lines.append("MISSION: Collapsed — %s" % game.failure_reason)
+	else:
+		recap_lines.append("MISSION: Completed")
+	recap_lines.append("SABOTAGE USED: %s" % ("Yes" if game.informant_sabotage_used else "No"))
+	recap_lines.append("")
+	recap_lines.append("ROLES")
+	for player in game.players:
+		recap_lines.append("• %s — %s" % [player.name, player.role])
+	recap_lines.append("")
+	recap_lines.append("MISSION RESULTS")
+	for result in game.round_history:
+		recap_lines.append("• Round %d: %s — %s (%d/100)" % [result.round, result.plan.title, "Success" if result.success else "Failure", result.score])
+	recap_lines.append("")
+	recap_lines.append("ACCUSATION TOTALS")
+	if game.accusation_totals.is_empty():
+		recap_lines.append("• Skipped")
+	else:
+		for player in game.players:
+			recap_lines.append("• %s: %d" % [player.name, game.accusation_totals.get(player.id, 0)])
+		if game.accusation_tied:
+			recap_lines.append("Result: Tie — accusation failed")
+		else:
+			recap_lines.append("Accused: %s" % game.get_player(game.accused_player_id).name)
+	var recap := Label.new()
+	recap.text = "\n".join(recap_lines)
+	recap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	recap.add_theme_font_size_override("font_size", 15)
+	content.add_child(recap)
 
 	var new_game_button := Button.new()
 	new_game_button.text = "Start a new game"
@@ -413,5 +489,6 @@ func _start_new_game() -> void:
 	reveal_index = 0
 	role_is_visible = false
 	vote_index = 0
+	accusation_index = 0
 	latest_result.clear()
 	_show_lobby()
