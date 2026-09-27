@@ -1,0 +1,12 @@
+export const PROTOCOL_VERSION = 1;
+export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const ROOM_CODE_LENGTH = 6;
+export const MAX_CODE_GENERATION_ATTEMPTS = 16;
+export const MAX_PLAYERS_PER_ROOM = 4;
+export const MIN_NAME_LENGTH = 2;
+export const MAX_NAME_LENGTH = 18;
+export const MAX_PAYLOAD_BYTES = 8 * 1024;
+export const RATE_LIMIT_WINDOW_MS = 10_000;
+export const RATE_LIMIT_COMMANDS = 20;
+export const REQUEST_CACHE_SIZE = 100;
+export const WEBSOCKET_PATH = "/ws";

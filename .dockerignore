@@ -1,0 +1,9 @@
+.git
+.github
+.godot
+node_modules
+builds
+exports
+coverage
+*.log
+.env*

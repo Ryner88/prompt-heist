@@ -34,16 +34,40 @@ The current prototype supports a complete three-round local pass-and-play missio
 
 ## Next milestone
 
-Connect the tested room directory to an authoritative multiplayer service, then deploy the web client at a stable public URL.
+Connect the Godot browser UI to the authoritative room protocol, then add reconnect and departure behavior before public deployment.
+
+## Authoritative room service
+
+PR 2 introduces a Node.js WebSocket service for version 1 of the room protocol. The Godot UI is not connected to it yet. See the [protocol reference](docs/protocol-v1.md) and [architecture decision record](docs/adr/0001-authoritative-room-service.md).
+
+Install and run it locally:
+
+```sh
+npm ci
+npm test
+npm start
+```
+
+The server listens on `http://0.0.0.0:3000` by default. Readiness is available at `GET /healthz`, and clients connect to `ws://localhost:3000/ws`. Set `PORT` and `HOST` to override the defaults.
+
+Build and check the production container:
+
+```sh
+docker build -t prompt-heist-room-service .
+docker run --rm -p 10000:10000 prompt-heist-room-service
+curl --fail http://localhost:10000/healthz
+```
+
+Rooms are intentionally process-local and ephemeral. A disconnect currently removes that player's seat, and a restart removes every room. Reconnect grace, durable persistence, browser screens, gameplay synchronization, and public deployment are not part of this slice.
 
 ## Tests
 
 Every milestone follows the repository's [testing strategy](docs/testing-strategy.md), including automated, security, boundary, recovery, and checked-in manual acceptance requirements.
 
-Run the public room registry tests with Godot 4.7 or later:
+Run the public room registry and complete game-rule regression suites with Godot 4.7 or later:
 
 ```sh
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-The current room registry is an in-memory domain foundation. It is not connected to network transport or the local game UI yet.
+The GDScript room registry remains a transport-independent domain reference. The Node service now exposes the authoritative create/join boundary, but the Godot UI is not connected to it yet.

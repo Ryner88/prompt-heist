@@ -18,3 +18,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Node service dependencies and test output
+node_modules/
+coverage/
