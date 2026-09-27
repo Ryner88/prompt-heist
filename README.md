@@ -38,6 +38,8 @@ Connect the tested room directory to an authoritative multiplayer service, then 
 
 ## Tests
 
+Every milestone follows the repository's [testing strategy](docs/testing-strategy.md), including automated, security, boundary, recovery, and checked-in manual acceptance requirements.
+
 Run the public room registry tests with Godot 4.7 or later:
 
 ```sh

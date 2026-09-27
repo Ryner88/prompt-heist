@@ -49,6 +49,8 @@ The release sequence keeps authority and privacy ahead of broad deployment. The 
 
 Each PR should keep the existing Godot rule suite green. The current repository lacks a checked-in full game regression harness; PR 1 adds a repeatable headless test entry point for the room domain, and PR 2 should preserve/add a complete rules regression suite before gameplay state moves server-side.
 
+Every PR and milestone is also governed by the repository-wide [testing strategy](testing-strategy.md). A completed [manual acceptance record](manual-test-record-template.md) is a release requirement, not a substitute for the automated suites.
+
 ## Current PR limitations
 
 - No network endpoint or game UI integration is added here.
