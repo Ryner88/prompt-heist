@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MAX_PAYLOAD_BYTES } from "../src/constants.js";
-import { decodeClientMessage } from "../src/protocol.js";
+import { decodeClientMessage, recoverRequestId } from "../src/protocol.js";
 import { command } from "./helpers.js";
 
 test("accepts valid versioned create and join envelopes", () => {
@@ -66,4 +66,12 @@ test("rejects authoritative and identity fields supplied by a client", () => {
     const message = command("create_room", "forged-1", { display_name: "Ada", ...extra });
     assert.equal(decodeClientMessage(JSON.stringify(message)).response.payload.code, "invalid_message");
   }
+});
+
+test("recovers only a schema-safe request ID for rate-limit correlation", () => {
+  assert.equal(recoverRequestId(JSON.stringify({ request_id: "rate-1" })), "rate-1");
+  assert.equal(recoverRequestId(JSON.stringify({ request_id: "not safe!" })), null);
+  assert.equal(recoverRequestId(JSON.stringify({ request_id: 42 })), null);
+  assert.equal(recoverRequestId("{"), null);
+  assert.equal(recoverRequestId(Buffer.from("{}"), true), null);
 });

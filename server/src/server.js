@@ -6,7 +6,7 @@ import {
   REQUEST_CACHE_SIZE,
   WEBSOCKET_PATH,
 } from "./constants.js";
-import { decodeClientMessage, errorResponse, response } from "./protocol.js";
+import { decodeClientMessage, errorResponse, recoverRequestId, response } from "./protocol.js";
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry } from "./room-registry.js";
 
@@ -94,7 +94,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
 
   function handleMessage(context, data, isBinary) {
     if (!context.limiter.consume()) {
-      send(context.websocket, errorResponse("rate_limited"));
+      send(context.websocket, errorResponse("rate_limited", recoverRequestId(data, isBinary)));
       return;
     }
     const decoded = decodeClientMessage(data, isBinary);

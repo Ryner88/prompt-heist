@@ -8,7 +8,7 @@
 - Maximum encoded message size: 8 KiB.
 - The current per-connection limit is 20 commands per 10-second window.
 
-Production clients use `wss://`. Local clients use `ws://`.
+Production and every non-loopback client must use secure WebSockets (`wss`). Unencrypted transport is allowed only for loopback-only local development and tests.
 
 ## Envelope
 

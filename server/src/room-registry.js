@@ -130,8 +130,15 @@ export function isValidRoomCode(value) {
 }
 
 export function generateRoomCode() {
-  const bytes = randomBytes(ROOM_CODE_LENGTH);
-  return [...bytes].map((byte) => ROOM_CODE_ALPHABET[byte % ROOM_CODE_ALPHABET.length]).join("");
+  const accepted = [];
+  const uniformLimit = 256 - (256 % ROOM_CODE_ALPHABET.length);
+  while (accepted.length < ROOM_CODE_LENGTH) {
+    for (const byte of randomBytes(ROOM_CODE_LENGTH)) {
+      if (byte < uniformLimit) accepted.push(byte);
+      if (accepted.length === ROOM_CODE_LENGTH) break;
+    }
+  }
+  return accepted.map((byte) => ROOM_CODE_ALPHABET[byte % ROOM_CODE_ALPHABET.length]).join("");
 }
 
 function success(roomCode, player, snapshot) {

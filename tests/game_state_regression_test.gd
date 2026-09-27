@@ -82,7 +82,7 @@ func _test_sabotage_authorization_and_single_use() -> void:
 	var before: int = game.suspicion
 	var result: Dictionary = game.resolve_vote()
 	_check(result.sabotage_applied, "Armed sabotage must be applied at resolution")
-	_check(game.suspicion >= before + 1, "Sabotage must increase the resolved suspicion result by two")
+	_check(before == 1 and game.suspicion == 2, "Sabotage must add exactly two after the selected plan's one-point reduction")
 
 func _test_invalid_phase_and_incomplete_actions() -> void:
 	var lobby = GameState.new()

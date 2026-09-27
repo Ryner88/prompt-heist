@@ -6,6 +6,7 @@ const ajv = new Ajv({ allErrors: true, strict: true });
 const validators = Object.fromEntries(
   Object.entries(clientMessageSchemas).map(([type, schema]) => [type, ajv.compile(schema)]),
 );
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 export function decodeClientMessage(data, isBinary = false) {
   const size = Buffer.isBuffer(data) ? data.byteLength : Buffer.byteLength(String(data));
@@ -46,6 +47,18 @@ export function response(type, payload, requestId = null) {
 
 export function errorResponse(code, requestId = null) {
   return response("error", { code }, requestId);
+}
+
+export function recoverRequestId(data, isBinary = false) {
+  if (isBinary) return null;
+  try {
+    const message = JSON.parse(String(data));
+    return typeof message?.request_id === "string" && REQUEST_ID_PATTERN.test(message.request_id)
+      ? message.request_id
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function failure(code, requestId = null) {

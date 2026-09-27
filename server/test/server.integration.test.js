@@ -161,11 +161,13 @@ test("rate limiting rejects excess commands and logs contain no private identifi
   t.after(() => client.close());
   const created = await createRoom(client, "Ada", "rate-create");
   client.clear();
-  for (let index = 0; index < 21; index += 1) client.send("{");
+  for (let index = 0; index < 19; index += 1) client.send("{");
+  client.send(command("create_room", "rate-over-limit", { display_name: "Ben" }));
   const limited = await client.next(
     (message) => message.type === "error" && message.payload.code === "rate_limited",
   );
   assert.equal(limited.payload.code, "rate_limited");
+  assert.equal(limited.request_id, "rate-over-limit");
   const logs = JSON.stringify(server.logs);
   assert.equal(logs.includes(created.payload.player_id), false);
   assert.equal(logs.includes(created.payload.session_id), false);

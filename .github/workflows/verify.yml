@@ -20,7 +20,9 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - name: Protocol tests with coverage gates
-        run: npm run test:coverage 2>&1 | tee coverage-report.txt
+        run: |
+          set -o pipefail
+          npm run test:coverage 2>&1 | tee coverage-report.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:

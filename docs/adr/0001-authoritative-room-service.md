@@ -41,7 +41,7 @@ These constraints are documented by [Render's Free service limitations](https://
 
 ## Security consequences
 
-- TLS is supplied at Render's edge; local development uses plain `ws://` and HTTP.
+- TLS is supplied at Render's edge, and every non-loopback client must use secure WebSockets. Unencrypted transport is allowed only for loopback-only local development and tests.
 - The server applies an 8 KiB message limit, strict schemas, a fixed-window per-connection command limit, and non-secret structured logs.
 - Room codes are locators rather than authentication. Guessing resistance, origin policy, distributed rate limiting, reconnect-token design, and abuse controls remain required before public release.
 - Session IDs are returned only to their owning connection. They are not accepted as client authority in this slice and never appear in snapshots or logs.
