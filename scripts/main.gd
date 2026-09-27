@@ -1,6 +1,9 @@
 extends Control
 
 const GameState = preload("res://scripts/game_state.gd")
+const RoomNetworkClientScript = preload("res://scripts/room_network_client.gd")
+const MultiplayerFlowScript = preload("res://scripts/multiplayer_flow.gd")
+const RoomProtocolScript = preload("res://scripts/room_protocol.gd")
 
 var game := GameState.new()
 var rng := RandomNumberGenerator.new()
@@ -17,11 +20,19 @@ var start_button: Button
 var vote_index := 0
 var latest_result: Dictionary = {}
 var accusation_index := 0
+var room_client: Node
+var multiplayer_flow: Node
+var online_name := ""
+var online_room_code := ""
+var online_endpoint := ""
+var online_create_button: Button
+var online_join_button: Button
+var online_validation_label: Label
 
 func _ready() -> void:
 	rng.randomize()
 	_build_shell()
-	_show_lobby()
+	_show_mode_selection()
 
 func _build_shell() -> void:
 	var background := ColorRect.new()
@@ -30,8 +41,8 @@ func _build_shell() -> void:
 	add_child(background)
 
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 96)
-	margin.add_theme_constant_override("margin_right", 96)
+	margin.add_theme_constant_override("margin_left", 32)
+	margin.add_theme_constant_override("margin_right", 32)
 	margin.add_theme_constant_override("margin_top", 56)
 	margin.add_theme_constant_override("margin_bottom", 56)
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -60,6 +71,8 @@ func _build_shell() -> void:
 	page.add_child(content)
 
 	status_label = Label.new()
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.add_theme_color_override("font_color", Color("ef6f6c"))
 	status_label.add_theme_font_size_override("font_size", 16)
 	page.add_child(status_label)
@@ -68,6 +81,214 @@ func _clear_content() -> void:
 	for child in content.get_children():
 		child.queue_free()
 	status_label.text = ""
+
+func _show_mode_selection() -> void:
+	_clear_content()
+	subtitle_label.text = "CHOOSE HOW TO PLAY"
+	var intro := Label.new()
+	intro.text = "Join the synchronized waiting room online, or keep playing the complete local pass-and-play prototype."
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.add_theme_font_size_override("font_size", 21)
+	content.add_child(intro)
+
+	var online_button := Button.new()
+	online_button.text = "Online multiplayer room"
+	online_button.custom_minimum_size = Vector2(0, 56)
+	online_button.pressed.connect(_show_online_multiplayer)
+	content.add_child(online_button)
+
+	var local_button := Button.new()
+	local_button.text = "Local pass-and-play"
+	local_button.custom_minimum_size = Vector2(0, 56)
+	local_button.pressed.connect(_show_lobby)
+	content.add_child(local_button)
+
+func _show_online_multiplayer() -> void:
+	_initialize_multiplayer()
+	online_endpoint = _configured_room_endpoint()
+	multiplayer_flow.connect_service(online_endpoint)
+	_render_multiplayer_state()
+
+func _initialize_multiplayer() -> void:
+	if multiplayer_flow != null:
+		return
+	room_client = RoomNetworkClientScript.new()
+	add_child(room_client)
+	multiplayer_flow = MultiplayerFlowScript.new(room_client)
+	add_child(multiplayer_flow)
+	multiplayer_flow.state_changed.connect(func(_state: int) -> void: _render_multiplayer_state())
+	multiplayer_flow.feedback_changed.connect(func(message: String) -> void:
+		status_label.text = message
+	)
+	multiplayer_flow.lobby_changed.connect(func(_snapshot: Dictionary) -> void: _render_multiplayer_state())
+
+func _configured_room_endpoint() -> String:
+	var environment_endpoint := OS.get_environment("PROMPT_HEIST_WS_URL").strip_edges()
+	if not environment_endpoint.is_empty():
+		return environment_endpoint
+	return str(ProjectSettings.get_setting("network/room_service_url", "ws://127.0.0.1:3000/ws")).strip_edges()
+
+func _render_multiplayer_state() -> void:
+	if multiplayer_flow == null:
+		return
+	_clear_content()
+	status_label.text = multiplayer_flow.feedback
+	match multiplayer_flow.state:
+		MultiplayerFlowScript.State.CONNECTING:
+			_show_online_connecting()
+		MultiplayerFlowScript.State.ENTRY, MultiplayerFlowScript.State.SUBMITTING:
+			_show_online_entry(multiplayer_flow.state == MultiplayerFlowScript.State.SUBMITTING)
+		MultiplayerFlowScript.State.LOBBY:
+			_show_online_lobby()
+		_:
+			_show_online_disconnected()
+
+func _show_online_connecting() -> void:
+	subtitle_label.text = "ONLINE • CONNECTING"
+	var label := Label.new()
+	label.text = "Connecting securely to the room service…"
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 22)
+	content.add_child(label)
+
+func _show_online_disconnected() -> void:
+	subtitle_label.text = "ONLINE • DISCONNECTED"
+	var notice := Label.new()
+	notice.text = "The service is not connected. Reconnect recovery for an active room arrives in PR 4."
+	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(notice)
+	var retry := Button.new()
+	retry.text = "Retry service connection"
+	retry.pressed.connect(func() -> void: multiplayer_flow.connect_service(online_endpoint))
+	content.add_child(retry)
+	var back := Button.new()
+	back.text = "Back to play modes"
+	back.pressed.connect(_show_mode_selection)
+	content.add_child(back)
+
+func _show_online_entry(pending: bool) -> void:
+	subtitle_label.text = "ONLINE • CREATE OR JOIN"
+	var connection := Label.new()
+	connection.text = "● Connected to room service"
+	connection.add_theme_color_override("font_color", Color("62d6a7"))
+	content.add_child(connection)
+
+	var name_label := Label.new()
+	name_label.text = "DISPLAY NAME"
+	content.add_child(name_label)
+	var online_name_input := LineEdit.new()
+	online_name_input.placeholder_text = "2–18 characters"
+	online_name_input.max_length = RoomProtocolScript.MAX_NAME_LENGTH
+	online_name_input.text = online_name
+	online_name_input.editable = not pending
+	online_name_input.text_changed.connect(func(value: String) -> void:
+		online_name = value
+		_refresh_online_entry_buttons()
+	)
+	content.add_child(online_name_input)
+
+	online_create_button = Button.new()
+	online_create_button.text = "Creating room…" if pending else "Create Room"
+	online_create_button.pressed.connect(func() -> void:
+		online_name = online_name_input.text
+		multiplayer_flow.submit_create(online_name)
+	)
+	content.add_child(online_create_button)
+
+	content.add_child(HSeparator.new())
+	var code_label := Label.new()
+	code_label.text = "ROOM CODE"
+	content.add_child(code_label)
+	var code_input := LineEdit.new()
+	code_input.placeholder_text = "ABC234"
+	code_input.max_length = RoomProtocolScript.ROOM_CODE_LENGTH
+	code_input.text = online_room_code
+	code_input.editable = not pending
+	code_input.text_changed.connect(func(value: String) -> void:
+		online_room_code = value.to_upper()
+		if code_input.text != online_room_code:
+			code_input.text = online_room_code
+			code_input.caret_column = online_room_code.length()
+		_refresh_online_entry_buttons()
+	)
+	content.add_child(code_input)
+
+	online_join_button = Button.new()
+	online_join_button.text = "Joining room…" if pending else "Join Room"
+	online_join_button.pressed.connect(func() -> void:
+		online_name = online_name_input.text
+		online_room_code = code_input.text
+		multiplayer_flow.submit_join(online_name, online_room_code)
+	)
+	content.add_child(online_join_button)
+
+	online_validation_label = Label.new()
+	online_validation_label.add_theme_color_override("font_color", Color("8fa3bf"))
+	online_validation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(online_validation_label)
+	_refresh_online_entry_buttons()
+	if not pending:
+		online_name_input.grab_focus()
+
+func _refresh_online_entry_buttons() -> void:
+	if online_create_button == null or not is_instance_valid(online_create_button):
+		return
+	var pending: bool = multiplayer_flow.state == MultiplayerFlowScript.State.SUBMITTING
+	online_create_button.disabled = pending or not multiplayer_flow.can_create(online_name)
+	online_join_button.disabled = pending or not multiplayer_flow.can_join(online_name, online_room_code)
+	var name_error := RoomProtocolScript.validate_name(online_name)
+	var code_error := RoomProtocolScript.validate_room_code(online_room_code)
+	if not name_error.is_empty():
+		online_validation_label.text = "Enter a display name containing 2–18 characters."
+	elif not online_room_code.is_empty() and not code_error.is_empty():
+		online_validation_label.text = "Room codes contain six unambiguous letters or numbers."
+	else:
+		online_validation_label.text = "Create a new room or enter an existing six-character code."
+
+func _show_online_lobby() -> void:
+	subtitle_label.text = "ONLINE • WAITING ROOM"
+	var snapshot: Dictionary = multiplayer_flow.lobby_snapshot
+	if snapshot.is_empty():
+		var waiting := Label.new()
+		waiting.text = "Waiting for the authoritative room snapshot…"
+		waiting.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(waiting)
+		return
+	var room_heading := Label.new()
+	room_heading.text = "ROOM %s" % snapshot.room_code
+	room_heading.add_theme_font_size_override("font_size", 36)
+	room_heading.add_theme_color_override("font_color", Color("f4c95d"))
+	content.add_child(room_heading)
+	var copy_button := Button.new()
+	copy_button.text = "Copy room code"
+	copy_button.pressed.connect(func() -> void:
+		DisplayServer.clipboard_set(snapshot.room_code)
+		status_label.text = "Room code copied when clipboard access is available."
+	)
+	content.add_child(copy_button)
+	var count := Label.new()
+	count.text = "%d / %d players" % [snapshot.player_count, snapshot.max_players]
+	count.add_theme_font_size_override("font_size", 22)
+	content.add_child(count)
+	for player_name in snapshot.player_names:
+		var player_label := Label.new()
+		player_label.text = "• %s" % player_name
+		player_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		player_label.add_theme_font_size_override("font_size", 21)
+		content.add_child(player_label)
+	var waiting_status := Label.new()
+	waiting_status.text = "Room full — waiting for network gameplay in a later slice." if snapshot.player_count == snapshot.max_players else "Waiting for more players…"
+	waiting_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	waiting_status.add_theme_color_override("font_color", Color("62d6a7") if snapshot.player_count == snapshot.max_players else Color("8fa3bf"))
+	content.add_child(waiting_status)
+	var connection := Label.new()
+	connection.text = "● Connected"
+	connection.add_theme_color_override("font_color", Color("62d6a7"))
+	content.add_child(connection)
+	var leave := Button.new()
+	leave.text = "Leave room and return"
+	leave.pressed.connect(func() -> void: multiplayer_flow.leave_lobby())
+	content.add_child(leave)
 
 func _show_lobby() -> void:
 	_clear_content()
