@@ -34,4 +34,14 @@ The current prototype supports a complete three-round local pass-and-play missio
 
 ## Next milestone
 
-Expand the completed local game loop with real multiplayer rooms, server-authoritative state, and server-side OpenAI narration.
+Connect the tested room directory to an authoritative multiplayer service, then deploy the web client at a stable public URL.
+
+## Tests
+
+Run the public room registry tests with Godot 4.7 or later:
+
+```sh
+godot --headless --path . --script res://tests/run_tests.gd
+```
+
+The current room registry is an in-memory domain foundation. It is not connected to network transport or the local game UI yet.
