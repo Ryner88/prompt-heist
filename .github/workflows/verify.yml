@@ -41,9 +41,13 @@ jobs:
           unzip -q /tmp/godot.zip -d /tmp/godot
           chmod +x "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
       - name: Room registry and game-rule regressions
-        run: "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" --headless --path . --script res://tests/run_tests.gd
+        run: >-
+          "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          --headless --path . --script res://tests/run_tests.gd
       - name: Headless project launch
-        run: "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" --headless --path . --quit-after 2
+        run: >-
+          "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          --headless --path . --quit-after 2
 
   container:
     runs-on: ubuntu-latest
