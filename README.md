@@ -87,7 +87,7 @@ python3 -m http.server 8000 --directory builds/web
 
 Then open `http://127.0.0.1:8000/`. A future deployed HTTPS page must connect to a secure `wss://` room-service endpoint to avoid mixed-content blocking. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers. This PR does not deploy either component.
 
-The lobby shows only server snapshots. Leaving closes the connection and clears the in-memory identity. Refreshing, disconnecting, or restarting the service loses the seat; the user must return to entry and create or join again until reconnect support arrives in PR 4. No networked gameplay actions are available yet.
+The lobby shows only server snapshots. Leaving closes the connection and clears the in-memory identity. An invalid room response or a command left unanswered for 10 seconds also closes the connection so the user can retry from a known state. Refreshing, disconnecting, or restarting the service loses the seat; the user must return to entry and create or join again until reconnect support arrives in PR 4. No networked gameplay actions are available yet.
 
 ## Tests
 

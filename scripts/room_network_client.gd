@@ -11,6 +11,7 @@ signal protocol_warning(message: String)
 
 const Protocol = preload("res://scripts/room_protocol.gd")
 const DefaultTransport = preload("res://scripts/websocket_transport.gd")
+const REQUEST_TIMEOUT_MS := 10000
 
 var player_id := ""
 var session_id := ""
@@ -78,6 +79,7 @@ func poll_transport() -> void:
 				protocol_warning.emit("The room service sent an unsupported binary message.")
 				continue
 			ingest_server_text(str(packet.get("text", "")), connection_generation)
+		_expire_pending_request()
 	elif state == WebSocketPeer.STATE_CLOSED:
 		var had_connection := _connecting or _connected
 		_connecting = false
@@ -132,7 +134,12 @@ func _send_command(command: String, payload: Dictionary) -> bool:
 	if not _connected or has_pending_request():
 		return false
 	var request_id := _next_request_id()
-	_pending[request_id] = {"command": command, "generation": connection_generation}
+	_pending[request_id] = {
+		"command": command,
+		"generation": connection_generation,
+		"room_code": payload.get("room_code", ""),
+		"deadline_ms": Time.get_ticks_msec() + REQUEST_TIMEOUT_MS,
+	}
 	var envelope := Protocol.make_envelope(command, request_id, payload)
 	if _transport.send_text(JSON.stringify(envelope)) != OK:
 		_pending.erase(request_id)
@@ -156,7 +163,9 @@ func _handle_command_result(message: Dictionary) -> void:
 		if not payload.has(key) or not payload[key] is String or payload[key].is_empty():
 			_reject_invalid_result(request_id)
 			return
-	if payload.command != pending.command or Protocol.validate_room_code(payload.room_code) != "":
+	if payload.command != pending.command or Protocol.validate_room_code(payload.room_code) != "" \
+			or payload.room_code != Protocol.normalize_room_code(payload.room_code) \
+			or (pending.command == "join_room" and payload.room_code != pending.room_code):
 		_reject_invalid_result(request_id)
 		return
 	_pending.erase(request_id)
@@ -166,21 +175,21 @@ func _handle_command_result(message: Dictionary) -> void:
 	command_succeeded.emit(payload.command, {
 		"command": payload.command,
 		"room_code": payload.room_code,
-		"player_id": payload.player_id,
 	})
 
 func _reject_invalid_result(request_id: String) -> void:
 	_pending.erase(request_id)
 	protocol_warning.emit("The room service returned an invalid command result.")
-	request_failed.emit("invalid_message", Protocol.error_message("invalid_message"))
+	disconnect_from_service()
+	disconnected.emit("The room service returned an invalid command result. Connect again to continue.")
 
 func _handle_snapshot(message: Dictionary) -> void:
 	if message.request_id != null or not Protocol.validate_snapshot(message.payload):
 		protocol_warning.emit("The room service returned an invalid room snapshot.")
 		return
 	var snapshot: Dictionary = Protocol.normalized_snapshot(message.payload)
-	if not active_room_code.is_empty() and snapshot.room_code != active_room_code:
-		protocol_warning.emit("A snapshot for another room was ignored.")
+	if active_room_code.is_empty() or snapshot.room_code != active_room_code:
+		protocol_warning.emit("A snapshot outside the active room was ignored.")
 		return
 	room_snapshot_received.emit(snapshot.duplicate(true))
 
@@ -221,6 +230,15 @@ func _clear_session() -> void:
 	session_id = ""
 	active_room_code = ""
 	_pending.clear()
+
+func _expire_pending_request() -> void:
+	if _pending.is_empty():
+		return
+	var request_id: String = _pending.keys()[0]
+	if Time.get_ticks_msec() < int(_pending[request_id].deadline_ms):
+		return
+	disconnect_from_service()
+	disconnected.emit("The room service did not answer in time. Connect again to retry.")
 
 func _next_request_id() -> String:
 	_request_counter += 1

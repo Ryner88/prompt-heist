@@ -64,10 +64,31 @@ Godot does not provide a native line/branch coverage report for these GDScript s
 
 - Critical security findings and resolution: The endpoint parser initially accepted lookalike `127.*` hosts; it now requires a numeric loopback address and has regression tests. The Godot close handshake initially failed to remove a seat promptly; continued polling fixed it, and the real-service disconnect assertion passes.
 - Known non-blocking issues: Rooms are ephemeral and have no reconnect grace. The local mission recap can extend below a `1280×720` viewport; the terminal result was visible, but replay-button accessibility was not part of this PR's acceptance journey. Network gameplay remains deferred.
-- Blocked tests and reason: Physical mobile devices, Safari/Firefox/Edge, external network, production TLS, and deployed rollback cannot be exercised without the later deployment slice. GitHub CI remains to be observed when the PR is opened.
+- Blocked tests and reason: Physical mobile devices, Safari/Firefox/Edge, external network, production TLS, and deployed rollback cannot be exercised without the later deployment slice. GitHub CI was subsequently observed for the original PR head; see the revalidation below.
 
 ## Release recommendation
 
 - Recommendation: Ready for PR review once CI passes; not a public production release.
 - Rationale: Browser room synchronization, capacity and negative paths, privacy checks, local-game regression journey, Godot/Node integration, Web export, dependency audit, and local rollback baseline passed. Public deployment and reconnect are separate slices.
 - Tester sign-off: Codex, 2026-09-27
+
+## PR head revalidation — 2026-10-07
+
+The checked-out branch was `milestone-4/browser-room-flow` at `c8c7864b5585aab4b78041fea24575f75b407eee`, matching open PR #9 before edits. GitHub's `pull_request` run `36322394345` and `push` run `36322360271` both targeted that SHA and each completed `protocol`, `godot`, and `container` successfully. The PR status rollup therefore does contain combined check entries. The optional Sourcery review was skipped because its review budget was exhausted; it is not a verification gate.
+
+Review found that the Godot success signal exposed the server-issued `player_id`, a join result could claim a different room from the submitted code, a public snapshot could be emitted before correlated room acceptance, and a missing response could leave the UI submitting indefinitely. The client now emits only command and room code to UI listeners; requires a canonical, matching result code; discards snapshots until room acceptance; and closes the connection after an invalid correlated result or a 10-second command timeout. Focused Godot regression assertions cover each behavior. Closing an uncertain session intentionally releases its server seat; recovery still requires creating or joining afresh.
+
+Local revalidation on Node 24.15.0 and Godot 4.7.2:
+
+| Check | Result |
+| --- | --- |
+| `npm run test:coverage` | 23/23 Node tests passed; 98.14% lines, 90.73% branches, 98.04% functions. Loopback socket access was required because the default sandbox returned `listen EPERM` for the integration tests. |
+| `npm audit --audit-level=high` | Passed; 0 vulnerabilities. |
+| Godot `--headless --path . --script res://tests/run_tests.gd` | 4 registry, 10 game-rule, 5 client, and 5 flow cases passed. |
+| Real Node service plus Godot `tests/network_integration_test.gd` | Passed create, join, capacity, errors, isolation, privacy, and disconnect. |
+| Godot `--headless --path . --quit-after 2` | Passed. |
+| Godot `--headless --path . --export-release Web builds/web/index.html` | Passed; generated HTML, PCK, JavaScript, and WASM. |
+| `actionlint .github/workflows/verify.yml` using 1.7.12 | Passed. |
+| `git diff --check` | Passed. |
+
+The 2026-09-27 browser screenshots remain evidence for the original UI journey. No new physical-device, cross-browser, external-network, TLS, deployed, or post-fix browser session was claimed during this revalidation. The new client regressions were checked headlessly and against the real local Node service. PR #9 remains a waiting-room slice and is not a public release.
