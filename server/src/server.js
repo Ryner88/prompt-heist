@@ -14,6 +14,8 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
   const connections = new Map();
   let ready = false;
   let shuttingDown = false;
+  const expiryTimer = setInterval(sweepExpiredSeats, 1_000);
+  expiryTimer.unref();
 
   const httpServer = http.createServer((request, reply) => {
     if (request.method === "GET" && request.url === "/healthz") {
@@ -75,6 +77,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
     if (shuttingDown) return;
     shuttingDown = true;
     ready = false;
+    clearInterval(expiryTimer);
     for (const context of connections.values()) {
       send(context.websocket, response("server_shutdown", { reason: "service_restart" }));
       context.websocket.close(1012, "service restart");
@@ -88,11 +91,12 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
 
   function sendPrivate(connectionId, payload, requestId = null) {
     const context = connections.get(connectionId);
-    if (!context) return false;
+    if (!context || !registry.sessionForConnection(connectionId)) return false;
     return send(context.websocket, response("private_message", payload, requestId));
   }
 
   function handleMessage(context, data, isBinary) {
+    sweepExpiredSeats();
     if (!context.limiter.consume()) {
       send(context.websocket, errorResponse("rate_limited", recoverRequestId(data, isBinary)));
       return;
@@ -115,31 +119,50 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       if (registry.sessionForConnection(context.connectionId)) {
         result = { ok: false, code: "connection_already_joined" };
       } else {
-        result = registry.createRoom(message.payload.display_name, context.connectionId);
+        result = registry.createRoom(message.payload.display_name, context.connectionId, {
+          reconnect: message.payload.reconnect === true,
+        });
       }
-    } else {
+    } else if (message.type === "join_room") {
       result = registry.joinRoom(
         message.payload.room_code,
         message.payload.display_name,
         context.connectionId,
+        { reconnect: message.payload.reconnect === true },
       );
+    } else if (message.type === "resume_room") {
+      result = registry.resumeRoom(
+        message.payload.room_code,
+        message.payload.reconnect_token,
+        context.connectionId,
+      );
+    } else {
+      result = registry.leaveRoom(context.connectionId);
     }
 
     const direct = result.ok
       ? response(
           "command_result",
-          {
+          message.type === "leave_room" ? { command: "leave_room", room_code: result.roomCode } : {
             command: message.type,
             room_code: result.roomCode,
             player_id: result.playerId,
             session_id: result.sessionId,
+            ...(result.reconnectToken ? { reconnect_token: result.reconnectToken } : {}),
           },
           message.request_id,
         )
       : errorResponse(result.code, message.request_id);
     cacheResponse(context, message.request_id, direct);
     send(context.websocket, direct);
-    if (result.ok) broadcastSnapshot(result.roomCode);
+    if (result.ok) {
+      if (result.replacedConnectionId) connections.get(result.replacedConnectionId)?.websocket.close(1000, "session replaced");
+      if (message.type !== "leave_room" || result.snapshot) broadcastSnapshot(result.roomCode);
+    }
+  }
+
+  function sweepExpiredSeats() {
+    for (const roomCode of registry.expireReservations()) broadcastSnapshot(roomCode);
   }
 
   function broadcastSnapshot(roomCode) {

@@ -19,6 +19,18 @@ const displayName = {
   maxLength: MAX_NAME_LENGTH + 2,
 };
 
+const roomCode = {
+  type: "string",
+  minLength: ROOM_CODE_LENGTH,
+  maxLength: ROOM_CODE_LENGTH + 2,
+  pattern: `^[${ROOM_CODE_ALPHABET.toLowerCase()}${ROOM_CODE_ALPHABET} ]+$`,
+};
+
+const reconnectToken = {
+  type: "string",
+  pattern: "^[A-Za-z0-9_-]{43}$",
+};
+
 const envelope = (type, payload) => ({
   $id: `prompt-heist/v${PROTOCOL_VERSION}/${type}`,
   type: "object",
@@ -37,20 +49,28 @@ export const clientMessageSchemas = {
     type: "object",
     additionalProperties: false,
     required: ["display_name"],
-    properties: { display_name: displayName },
+    properties: { display_name: displayName, reconnect: { const: true } },
   }),
   join_room: envelope("join_room", {
     type: "object",
     additionalProperties: false,
     required: ["room_code", "display_name"],
     properties: {
-      room_code: {
-        type: "string",
-        minLength: ROOM_CODE_LENGTH,
-        maxLength: ROOM_CODE_LENGTH + 2,
-        pattern: `^[${ROOM_CODE_ALPHABET.toLowerCase()}${ROOM_CODE_ALPHABET} ]+$`,
-      },
+      room_code: roomCode,
       display_name: displayName,
+      reconnect: { const: true },
     },
+  }),
+  resume_room: envelope("resume_room", {
+    type: "object",
+    additionalProperties: false,
+    required: ["room_code", "reconnect_token"],
+    properties: { room_code: roomCode, reconnect_token: reconnectToken },
+  }),
+  leave_room: envelope("leave_room", {
+    type: "object",
+    additionalProperties: false,
+    required: [],
+    properties: {},
   }),
 };
