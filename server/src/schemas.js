@@ -49,7 +49,7 @@ export const clientMessageSchemas = {
     type: "object",
     additionalProperties: false,
     required: ["display_name"],
-    properties: { display_name: displayName, reconnect: { const: true } },
+    properties: { display_name: displayName, reconnect: { const: true }, sync: { const: true } },
   }),
   join_room: envelope("join_room", {
     type: "object",
@@ -59,13 +59,14 @@ export const clientMessageSchemas = {
       room_code: roomCode,
       display_name: displayName,
       reconnect: { const: true },
+      sync: { const: true },
     },
   }),
   resume_room: envelope("resume_room", {
     type: "object",
     additionalProperties: false,
     required: ["room_code", "reconnect_token"],
-    properties: { room_code: roomCode, reconnect_token: reconnectToken },
+    properties: { room_code: roomCode, reconnect_token: reconnectToken, sync: { const: true } },
   }),
   leave_room: envelope("leave_room", {
     type: "object",

@@ -22,6 +22,7 @@ var active_room_code := ""
 var reconnect_token := ""
 var reconnect_room_code := ""
 var connection_generation := 0
+var _last_revision := 0
 
 var _transport: RefCounted
 var _pending: Dictionary = {}
@@ -80,7 +81,7 @@ func poll_transport() -> void:
 			_connected = true
 			if has_recovery():
 				recovery_started.emit()
-				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token}):
+				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token, "sync": true}):
 					disconnect_from_service(false)
 					disconnected.emit("Could not request room recovery. Connect again to retry.")
 			else:
@@ -101,13 +102,14 @@ func poll_transport() -> void:
 			_handle_disconnect("The room service disconnected. Retry to recover your reserved seat." if reason.is_empty() else "The room service disconnected. Retry to recover your reserved seat.")
 
 func create_room(display_name: String) -> bool:
-	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true})
+	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true, "sync": true})
 
 func join_room(room_code: String, display_name: String) -> bool:
 	return _send_command("join_room", {
 		"room_code": Protocol.normalize_room_code(room_code),
 		"display_name": Protocol.normalize_name(display_name),
 		"reconnect": true,
+		"sync": true,
 	})
 
 func leave_room() -> bool:
@@ -201,6 +203,7 @@ func _handle_command_result(message: Dictionary) -> void:
 	player_id = payload.player_id
 	session_id = payload.session_id
 	active_room_code = payload.room_code
+	_last_revision = 0
 	reconnect_token = payload.reconnect_token
 	reconnect_room_code = payload.room_code
 	_save_recovery()
@@ -223,6 +226,9 @@ func _handle_snapshot(message: Dictionary) -> void:
 	if active_room_code.is_empty() or snapshot.room_code != active_room_code:
 		protocol_warning.emit("A snapshot outside the active room was ignored.")
 		return
+	if snapshot.revision <= _last_revision:
+		return
+	_last_revision = snapshot.revision
 	room_snapshot_received.emit(snapshot.duplicate(true))
 
 func _handle_error(message: Dictionary) -> void:
@@ -275,6 +281,7 @@ func _clear_session() -> void:
 	player_id = ""
 	session_id = ""
 	active_room_code = ""
+	_last_revision = 0
 	_pending.clear()
 
 func _expire_pending_request() -> void:

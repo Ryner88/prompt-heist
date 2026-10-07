@@ -156,7 +156,7 @@ func _command_result(request_id: String, command: String = "create_room") -> Str
 func _snapshot(room_code: String, names: Array) -> String:
 	return JSON.stringify({
 		"version": 1, "type": "room_snapshot", "request_id": null,
-		"payload": {"room_code": room_code, "player_names": names, "player_count": names.size(), "max_players": 4},
+		"payload": {"room_code": room_code, "player_names": names, "player_count": names.size(), "max_players": 4, "revision": names.size()},
 	})
 
 func _check(condition: bool, message: String) -> void:

@@ -10,6 +10,10 @@ test("accepts valid versioned create and join envelopes", () => {
     true,
   );
   assert.equal(
+    decodeClientMessage(JSON.stringify(command("create_room", "sync", { display_name: "Ada", sync: true }))).ok,
+    true,
+  );
+  assert.equal(
     decodeClientMessage(
       JSON.stringify(command("join_room", "b", { room_code: "ABC234", display_name: "Ben" })),
     ).ok,
@@ -31,6 +35,7 @@ test("recovery commands require narrow payloads and never accept forged identity
     { room_code: "ABC234", reconnect_token: token, session_id: "forged" },
   ]) assert.equal(decodeClientMessage(JSON.stringify(command("resume_room", "bad", payload))).response.payload.code, "invalid_message");
   assert.equal(decodeClientMessage(JSON.stringify(command("leave_room", "bad-leave", { room_code: "ABC234" }))).response.payload.code, "invalid_message");
+  assert.equal(decodeClientMessage(JSON.stringify(command("create_room", "bad-sync", { display_name: "Ada", sync: false }))).response.payload.code, "invalid_message");
 });
 
 test("rejects empty, malformed, binary, and oversized messages", () => {

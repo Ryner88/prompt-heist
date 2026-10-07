@@ -119,7 +119,7 @@ static func is_safe_request_id(value: Variant) -> bool:
 static func validate_snapshot(payload: Variant) -> bool:
 	if not payload is Dictionary:
 		return false
-	var expected := ["room_code", "player_names", "player_count", "max_players"]
+	var expected := ["room_code", "player_names", "player_count", "max_players", "revision"]
 	if payload.keys().size() != expected.size():
 		return false
 	for key in expected:
@@ -127,13 +127,15 @@ static func validate_snapshot(payload: Variant) -> bool:
 			return false
 	if not payload.room_code is String or validate_room_code(payload.room_code) != "":
 		return false
-	if not payload.player_names is Array or not _is_integral_number(payload.player_count) or not _is_integral_number(payload.max_players):
+	if not payload.player_names is Array or not _is_integral_number(payload.player_count) or not _is_integral_number(payload.max_players) or not _is_integral_number(payload.revision):
 		return false
 	var player_count := int(payload.player_count)
 	var max_players := int(payload.max_players)
 	if player_count != payload.player_names.size() or max_players != 4:
 		return false
 	if player_count < 0 or player_count > max_players:
+		return false
+	if int(payload.revision) < 1:
 		return false
 	for player_name in payload.player_names:
 		if not player_name is String or validate_name(player_name) != "":
@@ -144,6 +146,7 @@ static func normalized_snapshot(payload: Dictionary) -> Dictionary:
 	var snapshot := payload.duplicate(true)
 	snapshot.player_count = int(snapshot.player_count)
 	snapshot.max_players = int(snapshot.max_players)
+	snapshot.revision = int(snapshot.revision)
 	return snapshot
 
 static func _is_loopback_host(host: String) -> bool:

@@ -43,6 +43,8 @@ Names are Unicode NFKC-normalized, trimmed, 2–18 Unicode characters, and uniqu
 
 Clients that support recovery add `"reconnect":true` to the payload of `create_room` or `join_room`. The field is optional to preserve older protocol-v1 clients. A capable client receives a `reconnect_token` in its direct `command_result` alongside the existing fields. Older clients receive the original four-field result and their seats are removed immediately on disconnect.
 
+Clients that support ordered waiting-room updates add `"sync":true` to `create_room` or `join_room` and, when resuming, to `resume_room`. This opt-in is independent of `reconnect`. It changes only the public `room_snapshot` shape sent to that client; existing protocol-v1 clients continue receiving the four public fields below.
+
 ### `resume_room`
 
 ```json
@@ -91,6 +93,8 @@ The bound connection alone can leave its current room. The direct result contain
   "max_players": 4
 }
 ```
+
+For a client using `"sync":true`, the same snapshot also contains `"revision":1` (a positive integer). The room service increments the revision on create, join, leave, disconnect, resume, and reservation expiry; rejected or duplicate commands do not change it. A client accepts only a snapshot for its active room with a revision greater than the last one it accepted on that connection. Revisions restart with a newly created room and must not be treated as identity or authorization. After a client resumes, the service sends the current full roster. It also rebroadcasts each occupied room's current snapshot every five seconds, allowing a connected client to recover a missed update without inventing room state. Expired seats are swept before the periodic rebroadcast; the maximum normal expiry-display lag is one second.
 
 Snapshots never contain roles, sabotage choices, votes before reveal, session or reconnect tokens, connection IDs, or server-only game state.
 
