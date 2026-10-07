@@ -16,6 +16,9 @@ const ERROR_MESSAGES := {
 	"rate_limited": "Too many requests. Wait a moment before trying again.",
 	"unsupported_version": "This client is incompatible with the room service. Refresh or update the game.",
 	"invalid_message": "The room service returned a protocol error. Please try again.",
+	"invalid_reconnect": "That reserved seat has expired or was already recovered. Create or join a room again.",
+	"not_in_room": "This connection is no longer in a room. Connect again to continue.",
+	"reconnect_token_unavailable": "The room service could not issue a recovery credential. Please try again.",
 }
 
 static func normalize_name(value: String) -> String:

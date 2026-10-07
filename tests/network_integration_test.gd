@@ -76,9 +76,16 @@ func _run() -> void:
 	_check(not ben_private.is_empty() and not ada_events.contains(ben_private), "Godot must never expose another player's private session identity")
 	_check(_snapshot_is_public(_latest_snapshot(ada)), "Real public snapshot must contain only allowlisted fields")
 
-	ben.disconnect_from_service()
-	await _wait_until(func() -> bool: return _latest_count(ada) == 3)
-	_check(_latest_count(ada) == 3, "One disconnect should update the room without crashing either process")
+	var old_token: String = ben.reconnect_token
+	ben._transport.close()
+	await _wait_until(func() -> bool: return not ben.is_connected_to_service())
+	_check(ben.has_recovery() and _latest_count(ada) == 4, "Transient disconnect should reserve the seat without exposing a token")
+	_check(ben.connect_to_service(endpoint), "Disconnected client should reconnect to the authority")
+	await _wait_until(func() -> bool: return ben.is_connected_to_service() and ben.reconnect_token != old_token and _latest_count(ben) == 4)
+	_check(ben.active_room_code == room_code and ben.reconnect_token != old_token, "Resume should rotate the private credential and recover the same room")
+	_check(ben.leave_room(), "Explicit leave should send an authoritative command")
+	await _wait_until(func() -> bool: return _latest_count(ada) == 3 and not ben.has_recovery())
+	_check(_latest_count(ada) == 3, "Acknowledged leave should release the seat immediately")
 	await _finish()
 
 func _new_client(label: String) -> Node:
@@ -147,5 +154,5 @@ func _finish() -> void:
 	for _index in 3:
 		await process_frame
 	if failures.is_empty():
-		print("Godot/Node real-service integration passed: create, join, capacity, errors, isolation, privacy, disconnect")
+		print("Godot/Node real-service integration passed: create, join, capacity, errors, isolation, privacy, resume, leave")
 	quit(1 if not failures.is_empty() else 0)

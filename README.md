@@ -58,7 +58,7 @@ docker run --rm -p 10000:10000 prompt-heist-room-service
 curl --fail http://localhost:10000/healthz
 ```
 
-Rooms are intentionally process-local and ephemeral. A disconnect currently removes that player's seat, and a restart removes every room. Reconnect grace, durable persistence, gameplay synchronization, and public deployment are not part of this slice.
+Rooms are intentionally process-local and ephemeral. Recovery-capable clients reserve a seat for 30 seconds after a transient disconnect; older protocol-v1 clients still release it immediately. An acknowledged Leave releases it immediately. A restart removes every room. Durable persistence, gameplay synchronization, and public deployment are not part of this slice.
 
 ## Browser room flow
 
@@ -87,7 +87,7 @@ python3 -m http.server 8000 --directory builds/web
 
 Then open `http://127.0.0.1:8000/`. A future deployed HTTPS page must connect to a secure `wss://` room-service endpoint to avoid mixed-content blocking. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers. This PR does not deploy either component.
 
-The lobby shows only server snapshots. Leaving closes the connection and clears the in-memory identity. An invalid room response or a command left unanswered for 10 seconds also closes the connection so the user can retry from a known state. Refreshing, disconnecting, or restarting the service loses the seat; the user must return to entry and create or join again until reconnect support arrives in PR 4. No networked gameplay actions are available yet.
+The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for 30 seconds; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. No networked gameplay actions are available yet.
 
 ## Tests
 

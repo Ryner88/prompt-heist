@@ -56,10 +56,11 @@ func run() -> void:
 	_test_response_correlation_identity_and_privacy()
 	_test_untrusted_messages_and_stale_generation()
 	_test_snapshot_validation_and_room_isolation()
+	_test_resume_rotation_and_invalid_credential()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("RoomNetworkClient tests passed: 5 cases")
+		print("RoomNetworkClient tests passed: 6 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -91,13 +92,13 @@ func _test_create_join_envelopes_and_unique_ids() -> void:
 	_check(not fixture.client.create_room("Ada"), "A second submission while pending must be rejected")
 	var create_message: Dictionary = JSON.parse_string(fixture.transport.sent[0])
 	_check(create_message.version == 1 and create_message.type == "create_room", "Create must use protocol-v1 envelope")
-	_check(create_message.payload == {"display_name": "Ada"}, "Create name must be normalized")
+	_check(create_message.payload == {"display_name": "Ada", "reconnect": true}, "Create name and reconnect capability must be normalized")
 	_check(Protocol.is_safe_request_id(create_message.request_id), "Create request ID must be safe")
 	fixture.client.ingest_server_text(_error(create_message.request_id, "unknown_room"), fixture.client.connection_generation)
 	_check(fixture.client.join_room(" abc234 ", " Ａｄａ "), "Join should send after the first request resolves")
 	var join_message: Dictionary = JSON.parse_string(fixture.transport.sent[1])
 	_check(join_message.type == "join_room", "Join must use the join command")
-	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada"}, "Join code and name must be normalized")
+	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada", "reconnect": true}, "Join code, name, and reconnect capability must be normalized")
 	_check(create_message.request_id != join_message.request_id, "Every command must receive a unique request ID")
 
 func _test_response_correlation_identity_and_privacy() -> void:
@@ -109,7 +110,7 @@ func _test_response_correlation_identity_and_privacy() -> void:
 	fixture.client.ingest_server_text(_command_result("not-pending", "create_room", "ABC234", "player-x", "session-x"), fixture.client.connection_generation)
 	_check(fixture.client.player_id.is_empty(), "Uncorrelated responses must not store identity")
 	fixture.client.ingest_server_text(_command_result(request.request_id, "create_room", "ABC234", "player-a", "session-secret"), fixture.client.connection_generation)
-	_check(fixture.client.player_id == "player-a" and fixture.client.session_id == "session-secret", "Correlated success must store server identity in memory")
+	_check(fixture.client.player_id == "player-a" and fixture.client.session_id == "session-secret" and fixture.client.has_recovery(), "Correlated success must store private identity and recovery credential in memory")
 	_check(public_results.size() == 1 and public_results[0] == {"command": "create_room", "room_code": "ABC234"}, "Neither player nor session identity may be exposed through UI-facing signals")
 	_check(fixture.client.create_room("Ada"), "A later command should be permitted after success")
 	var second_request: Dictionary = JSON.parse_string(fixture.transport.sent[1])
@@ -186,6 +187,35 @@ func _test_snapshot_validation_and_room_isolation() -> void:
 	case_fixture.client.ingest_server_text(_command_result(case_request.request_id, "create_room", "abc234", "player-a", "secret-a"), case_fixture.client.connection_generation)
 	_check(not case_fixture.client.is_connected_to_service(), "A non-canonical result code must not establish a room that rejects its snapshots")
 
+func _test_resume_rotation_and_invalid_credential() -> void:
+	var fixture := _connected_client()
+	var public_results: Array[Dictionary] = []
+	fixture.client.command_succeeded.connect(func(_command: String, payload: Dictionary) -> void: public_results.append(payload))
+	fixture.client.create_room("Ada")
+	var create_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	fixture.client.ingest_server_text(_command_result(create_request.request_id, "create_room", "ABC234", "player-a", "session-a"), fixture.client.connection_generation)
+	fixture.transport.state = WebSocketPeer.STATE_CLOSED
+	fixture.client.poll_transport()
+	_check(fixture.client.has_recovery() and fixture.client.player_id.is_empty(), "Transport loss must retain only recovery state")
+	fixture.client.connect_to_service("ws://127.0.0.1:3000/ws")
+	fixture.transport.open()
+	fixture.client.poll_transport()
+	var resume_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	_check(resume_request.type == "resume_room" and resume_request.payload.reconnect_token == "A".repeat(43), "Resume must send the private token only to the authority")
+	var rotated: Dictionary = JSON.parse_string(_command_result(resume_request.request_id, "resume_room", "ABC234", "player-a", "session-b"))
+	rotated.payload.reconnect_token = "B".repeat(43)
+	fixture.client.ingest_server_text(JSON.stringify(rotated), fixture.client.connection_generation)
+	_check(fixture.client.reconnect_token == "B".repeat(43) and fixture.client.session_id == "session-b", "Resume must replace both private credentials")
+	_check(public_results.back() == {"command": "resume_room", "room_code": "ABC234"}, "Rotated credentials must stay out of public signals")
+	fixture.transport.state = WebSocketPeer.STATE_CLOSED
+	fixture.client.poll_transport()
+	fixture.client.connect_to_service("ws://127.0.0.1:3000/ws")
+	fixture.transport.open()
+	fixture.client.poll_transport()
+	var failed_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	fixture.client.ingest_server_text(_error(failed_request.request_id, "invalid_reconnect"), fixture.client.connection_generation)
+	_check(not fixture.client.has_recovery() and fixture.client.is_connected_to_service(), "Invalid recovery must clear the token and allow fresh entry")
+
 func _connected_client() -> Dictionary:
 	var transport := FakeTransport.new()
 	var client = ClientScript.new(transport)
@@ -200,7 +230,7 @@ func _command_result(request_id: String, command: String, room_code: String, pla
 		"version": 1,
 		"type": "command_result",
 		"request_id": request_id,
-		"payload": {"command": command, "room_code": room_code, "player_id": player_id, "session_id": session_id},
+		"payload": {"command": command, "room_code": room_code, "player_id": player_id, "session_id": session_id, "reconnect_token": "A".repeat(43)},
 	})
 
 func _error(request_id: String, code: String) -> String:
