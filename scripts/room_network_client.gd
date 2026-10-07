@@ -8,14 +8,19 @@ signal room_snapshot_received(snapshot: Dictionary)
 signal request_failed(code: String, message: String)
 signal shutdown_announced(message: String)
 signal protocol_warning(message: String)
+signal recovery_started()
+signal left_room()
 
 const Protocol = preload("res://scripts/room_protocol.gd")
 const DefaultTransport = preload("res://scripts/websocket_transport.gd")
 const REQUEST_TIMEOUT_MS := 10000
+const RECOVERY_STORAGE_KEY := "prompt_heist_room_recovery_v1"
 
 var player_id := ""
 var session_id := ""
 var active_room_code := ""
+var reconnect_token := ""
+var reconnect_room_code := ""
 var connection_generation := 0
 
 var _transport: RefCounted
@@ -28,6 +33,7 @@ var _endpoint := ""
 
 func _init(transport: RefCounted = null) -> void:
 	_transport = transport if transport != null else DefaultTransport.new()
+	_load_recovery()
 
 func _ready() -> void:
 	set_process(true)
@@ -72,7 +78,13 @@ func poll_transport() -> void:
 		if not _connected:
 			_connecting = false
 			_connected = true
-			connected.emit(connection_generation)
+			if has_recovery():
+				recovery_started.emit()
+				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token}):
+					disconnect_from_service(false)
+					disconnected.emit("Could not request room recovery. Connect again to retry.")
+			else:
+				connected.emit(connection_generation)
 		while _transport.get_available_packet_count() > 0:
 			var packet: Dictionary = _transport.read_text()
 			if not packet.get("ok", false):
@@ -86,16 +98,25 @@ func poll_transport() -> void:
 		_connected = false
 		if had_connection:
 			var reason: String = _transport.get_close_reason()
-			_handle_disconnect("The room service disconnected. Reconnect support is coming in PR 4." if reason.is_empty() else "The room service disconnected. Reconnect support is coming in PR 4.")
+			_handle_disconnect("The room service disconnected. Retry to recover your reserved seat." if reason.is_empty() else "The room service disconnected. Retry to recover your reserved seat.")
 
 func create_room(display_name: String) -> bool:
-	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name)})
+	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true})
 
 func join_room(room_code: String, display_name: String) -> bool:
 	return _send_command("join_room", {
 		"room_code": Protocol.normalize_room_code(room_code),
 		"display_name": Protocol.normalize_name(display_name),
+		"reconnect": true,
 	})
+
+func leave_room() -> bool:
+	if active_room_code.is_empty():
+		return false
+	return _send_command("leave_room", {})
+
+func has_recovery() -> bool:
+	return not reconnect_token.is_empty() and not reconnect_room_code.is_empty()
 
 func has_pending_request() -> bool:
 	return not _pending.is_empty()
@@ -103,13 +124,15 @@ func has_pending_request() -> bool:
 func is_connected_to_service() -> bool:
 	return _connected
 
-func disconnect_from_service() -> void:
+func disconnect_from_service(clear_recovery: bool = true) -> void:
 	if _connecting or _connected:
 		_transport.close()
 		_closing = _transport.get_ready_state() != WebSocketPeer.STATE_CLOSED
 	_connecting = false
 	_connected = false
 	_clear_session()
+	if clear_recovery:
+		_clear_recovery()
 
 func ingest_server_text(text: String, generation: int) -> void:
 	if generation != connection_generation or not _connected:
@@ -155,7 +178,7 @@ func _handle_command_result(message: Dictionary) -> void:
 	if pending.generation != connection_generation:
 		return
 	var payload: Dictionary = message.payload
-	var expected := ["command", "room_code", "player_id", "session_id"]
+	var expected := ["command", "room_code"] if pending.command == "leave_room" else ["command", "room_code", "player_id", "session_id", "reconnect_token"]
 	if payload.keys().size() != expected.size():
 		_reject_invalid_result(request_id)
 		return
@@ -165,13 +188,22 @@ func _handle_command_result(message: Dictionary) -> void:
 			return
 	if payload.command != pending.command or Protocol.validate_room_code(payload.room_code) != "" \
 			or payload.room_code != Protocol.normalize_room_code(payload.room_code) \
-			or (pending.command == "join_room" and payload.room_code != pending.room_code):
+			or (pending.command in ["join_room", "resume_room"] and payload.room_code != pending.room_code) \
+			or (pending.command == "leave_room" and payload.room_code != active_room_code) \
+			or (pending.command != "leave_room" and not _valid_reconnect_token(payload.reconnect_token)):
 		_reject_invalid_result(request_id)
 		return
 	_pending.erase(request_id)
+	if pending.command == "leave_room":
+		disconnect_from_service()
+		left_room.emit()
+		return
 	player_id = payload.player_id
 	session_id = payload.session_id
 	active_room_code = payload.room_code
+	reconnect_token = payload.reconnect_token
+	reconnect_room_code = payload.room_code
+	_save_recovery()
 	command_succeeded.emit(payload.command, {
 		"command": payload.command,
 		"room_code": payload.room_code,
@@ -208,18 +240,32 @@ func _handle_error(message: Dictionary) -> void:
 	if pending.generation != connection_generation:
 		return
 	_pending.erase(request_id)
+	if pending.command == "resume_room":
+		if payload.code in ["invalid_reconnect", "unknown_room"]:
+			_clear_recovery()
+			request_failed.emit(payload.code, Protocol.error_message(payload.code))
+			connected.emit(connection_generation)
+			return
+		disconnect_from_service(false)
+		disconnected.emit(Protocol.error_message(payload.code))
+		return
+	if pending.command == "leave_room":
+		disconnect_from_service(false)
+		disconnected.emit(Protocol.error_message(payload.code))
+		return
 	request_failed.emit(payload.code, Protocol.error_message(payload.code))
 
 func _handle_shutdown(message: Dictionary) -> void:
 	if message.request_id != null or message.payload.keys().size() != 1 or message.payload.get("reason") != "service_restart":
 		protocol_warning.emit("The room service returned an invalid shutdown notice.")
 		return
-	shutdown_announced.emit("The room service is restarting. Reconnect support is coming in PR 4.")
+	shutdown_announced.emit("The room service is restarting. Its rooms have been cleared; create or join again.")
 	_transport.close()
 	_closing = _transport.get_ready_state() != WebSocketPeer.STATE_CLOSED
 	_connecting = false
 	_connected = false
 	_clear_session()
+	_clear_recovery()
 
 func _handle_disconnect(message: String) -> void:
 	_clear_session()
@@ -237,8 +283,44 @@ func _expire_pending_request() -> void:
 	var request_id: String = _pending.keys()[0]
 	if Time.get_ticks_msec() < int(_pending[request_id].deadline_ms):
 		return
-	disconnect_from_service()
+	disconnect_from_service(false)
 	disconnected.emit("The room service did not answer in time. Connect again to retry.")
+
+func _valid_reconnect_token(value: Variant) -> bool:
+	if not value is String or value.length() != 43:
+		return false
+	for character in value:
+		if not (character >= "A" and character <= "Z") and not (character >= "a" and character <= "z") \
+				and not (character >= "0" and character <= "9") and character != "_" and character != "-":
+			return false
+	return true
+
+func _clear_recovery() -> void:
+	reconnect_token = ""
+	reconnect_room_code = ""
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("try { sessionStorage.removeItem('%s'); } catch (e) {}" % RECOVERY_STORAGE_KEY)
+
+func _save_recovery() -> void:
+	if not OS.has_feature("web"):
+		return
+	var serialized := JSON.stringify({"room_code": reconnect_room_code, "reconnect_token": reconnect_token})
+	JavaScriptBridge.eval("try { sessionStorage.setItem('%s', %s); } catch (e) {}" % [RECOVERY_STORAGE_KEY, JSON.stringify(serialized)])
+
+func _load_recovery() -> void:
+	if not OS.has_feature("web"):
+		return
+	var serialized: Variant = JavaScriptBridge.eval("try { sessionStorage.getItem('%s') || ''; } catch (e) { ''; }" % RECOVERY_STORAGE_KEY)
+	if not serialized is String or serialized.is_empty():
+		return
+	var parsed: Variant = JSON.parse_string(serialized)
+	if parsed is Dictionary and parsed.keys().size() == 2 and parsed.has("room_code") and parsed.has("reconnect_token") \
+			and parsed.room_code is String and parsed.room_code == Protocol.normalize_room_code(parsed.room_code) \
+			and Protocol.validate_room_code(parsed.room_code) == "" and _valid_reconnect_token(parsed.reconnect_token):
+		reconnect_room_code = parsed.room_code
+		reconnect_token = parsed.reconnect_token
+	else:
+		_clear_recovery()
 
 func _next_request_id() -> String:
 	_request_counter += 1

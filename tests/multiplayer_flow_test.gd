@@ -30,11 +30,12 @@ func run() -> void:
 	_test_error_mapping()
 	_test_authoritative_lobby_progression_and_full_error()
 	_test_disconnect_and_local_navigation()
+	_test_recovery_and_acknowledged_leave()
 	allocated_nodes.reverse()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("MultiplayerFlow tests passed: 5 cases")
+		print("MultiplayerFlow tests passed: 6 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -108,6 +109,31 @@ func _test_disconnect_and_local_navigation() -> void:
 	allocated_nodes.append(main)
 	_check(main.has_method("_show_lobby") and main.has_method("_show_mode_selection"), "Existing pass-and-play navigation must remain available")
 
+func _test_recovery_and_acknowledged_leave() -> void:
+	var fixture := _flow_fixture()
+	fixture.flow.submit_create("Ada")
+	var request: Dictionary = JSON.parse_string(fixture.transport.sent[0])
+	fixture.client.ingest_server_text(_command_result(request.request_id), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"]), fixture.client.connection_generation)
+	fixture.transport.state = WebSocketPeer.STATE_CLOSED
+	fixture.client.poll_transport()
+	_check(fixture.client.has_recovery() and fixture.flow.state == FlowScript.State.DISCONNECTED, "Transient disconnect must retain private recovery data")
+	_check(fixture.flow.connect_service("ws://127.0.0.1:3000/ws"), "Retry should start a new connection")
+	fixture.transport.state = WebSocketPeer.STATE_OPEN
+	fixture.client.poll_transport()
+	_check(fixture.flow.state == FlowScript.State.RECOVERING, "Connection with a token must request server recovery")
+	var resume_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	_check(resume_request.type == "resume_room" and resume_request.payload.room_code == "ABC234", "Recovery must target the server-owned room")
+	fixture.client.ingest_server_text(_command_result(resume_request.request_id, "resume_room"), fixture.client.connection_generation)
+	_check(fixture.flow.state == FlowScript.State.LOBBY and fixture.flow.lobby_snapshot.is_empty(), "Resume must wait for a fresh authoritative snapshot")
+	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"]), fixture.client.connection_generation)
+	fixture.flow.leave_lobby()
+	_check(fixture.flow.state == FlowScript.State.LEAVING and fixture.client.has_recovery(), "Leave must wait for server acknowledgement before clearing the token")
+	var leave_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	_check(leave_request.type == "leave_room", "Explicit leave must send the authoritative leave command")
+	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "command_result", "request_id": leave_request.request_id, "payload": {"command": "leave_room", "room_code": "ABC234"}}), fixture.client.connection_generation)
+	_check(fixture.flow.state == FlowScript.State.DISCONNECTED and not fixture.client.has_recovery(), "Acknowledged leave must clear recovery and return to disconnected state")
+
 func _flow_fixture() -> Dictionary:
 	var transport := FakeTransport.new()
 	var client = ClientScript.new(transport)
@@ -121,10 +147,10 @@ func _flow_fixture() -> Dictionary:
 	_check(flow.state == FlowScript.State.ENTRY, "Connected fixture should enter Entry")
 	return {"transport": transport, "client": client, "flow": flow}
 
-func _command_result(request_id: String) -> String:
+func _command_result(request_id: String, command: String = "create_room") -> String:
 	return JSON.stringify({
 		"version": 1, "type": "command_result", "request_id": request_id,
-		"payload": {"command": "create_room", "room_code": "ABC234", "player_id": "player-a", "session_id": "private-session"},
+		"payload": {"command": command, "room_code": "ABC234", "player_id": "player-a", "session_id": "private-session", "reconnect_token": "B".repeat(43) if command == "resume_room" else "A".repeat(43)},
 	})
 
 func _snapshot(room_code: String, names: Array) -> String:

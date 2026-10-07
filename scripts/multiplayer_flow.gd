@@ -7,7 +7,7 @@ signal lobby_changed(snapshot: Dictionary)
 
 const Protocol = preload("res://scripts/room_protocol.gd")
 
-enum State { DISCONNECTED, CONNECTING, ENTRY, SUBMITTING, LOBBY }
+enum State { DISCONNECTED, CONNECTING, ENTRY, SUBMITTING, LOBBY, RECOVERING, LEAVING }
 
 var state: State = State.DISCONNECTED
 var feedback := ""
@@ -31,6 +31,8 @@ func bind_client(network_client: Node) -> void:
 	client.request_failed.connect(_on_request_failed)
 	client.shutdown_announced.connect(_on_shutdown)
 	client.protocol_warning.connect(_on_protocol_warning)
+	client.recovery_started.connect(_on_recovery_started)
+	client.left_room.connect(_on_left_room)
 
 func connect_service(service_endpoint: String) -> bool:
 	if state != State.DISCONNECTED:
@@ -70,14 +72,25 @@ func can_join(display_name: String, room_code: String) -> bool:
 	return can_create(display_name) and Protocol.validate_room_code(room_code) == ""
 
 func leave_lobby() -> void:
-	client.disconnect_from_service()
-	lobby_snapshot.clear()
-	_set_feedback("You left the room. Connect again to create or join another room.")
-	_set_state(State.DISCONNECTED)
+	if state != State.LOBBY:
+		return
+	_set_state(State.LEAVING)
+	if not client.leave_room():
+		_set_state(State.LOBBY)
+		_set_feedback("Could not send the leave request. Please try again.")
 
 func _on_connected(_generation: int) -> void:
 	if state == State.CONNECTING:
 		_set_state(State.ENTRY)
+
+func _on_recovery_started() -> void:
+	if state == State.CONNECTING:
+		_set_state(State.RECOVERING)
+
+func _on_left_room() -> void:
+	lobby_snapshot.clear()
+	_set_feedback("You left the room. Connect again to create or join another room.")
+	_set_state(State.DISCONNECTED)
 
 func _on_disconnected(message: String) -> void:
 	lobby_snapshot.clear()
@@ -85,7 +98,7 @@ func _on_disconnected(message: String) -> void:
 	_set_state(State.DISCONNECTED)
 
 func _on_command_succeeded(_command: String, _payload: Dictionary) -> void:
-	if state == State.SUBMITTING:
+	if state in [State.SUBMITTING, State.RECOVERING]:
 		_set_state(State.LOBBY)
 
 func _on_snapshot(snapshot: Dictionary) -> void:
@@ -96,7 +109,7 @@ func _on_snapshot(snapshot: Dictionary) -> void:
 
 func _on_request_failed(_code: String, message: String) -> void:
 	_set_feedback(message)
-	if state == State.SUBMITTING:
+	if state in [State.SUBMITTING, State.RECOVERING]:
 		_set_state(State.ENTRY)
 
 func _on_shutdown(message: String) -> void:

@@ -17,6 +17,22 @@ test("accepts valid versioned create and join envelopes", () => {
   );
 });
 
+test("recovery commands require narrow payloads and never accept forged identity", () => {
+  const token = "A".repeat(43);
+  for (const message of [
+    command("create_room", "cap", { display_name: "Ada", reconnect: true }),
+    command("join_room", "join", { room_code: "ABC234", display_name: "Ben", reconnect: true }),
+    command("resume_room", "resume", { room_code: "ABC234", reconnect_token: token }),
+    command("leave_room", "leave", {}),
+  ]) assert.equal(decodeClientMessage(JSON.stringify(message)).ok, true);
+  for (const payload of [
+    { room_code: "ABC234", reconnect_token: "short" },
+    { room_code: "ABC234", reconnect_token: token, player_id: "forged" },
+    { room_code: "ABC234", reconnect_token: token, session_id: "forged" },
+  ]) assert.equal(decodeClientMessage(JSON.stringify(command("resume_room", "bad", payload))).response.payload.code, "invalid_message");
+  assert.equal(decodeClientMessage(JSON.stringify(command("leave_room", "bad-leave", { room_code: "ABC234" }))).response.payload.code, "invalid_message");
+});
+
 test("rejects empty, malformed, binary, and oversized messages", () => {
   assert.equal(decodeClientMessage("").response.payload.code, "empty_message");
   assert.equal(decodeClientMessage("{").response.payload.code, "malformed_message");

@@ -41,9 +41,31 @@ Unknown envelope or payload properties are rejected.
 
 Names are Unicode NFKC-normalized, trimmed, 2–18 Unicode characters, and unique after case normalization. Room codes contain six characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. Rooms contain at most four players.
 
+Clients that support recovery add `"reconnect":true` to the payload of `create_room` or `join_room`. The field is optional to preserve older protocol-v1 clients. A capable client receives a `reconnect_token` in its direct `command_result` alongside the existing fields. Older clients receive the original four-field result and their seats are removed immediately on disconnect.
+
+### `resume_room`
+
+```json
+{"version":1,"type":"resume_room","request_id":"r1","payload":{"room_code":"ABC234","reconnect_token":"43-character-private-base64url-token"}}
+```
+
+The token is a 32-byte cryptographically random bearer credential encoded as 43 URL-safe characters. The room registry stores its SHA-256 digest. The bounded, private per-connection response cache retains the direct result (including the token) for request-ID idempotency until that connection closes or the entry is evicted. A successful resume atomically consumes the old token, rotates the token and `session_id`, and binds the existing `player_id` and seat to the new connection. The response is a private `command_result` with the new token. A stale socket cannot remove or control the replacement session, including by claiming another seat while its close is pending.
+
+If the connection is lost after the server commits a resume but before the client receives the new token, the old token cannot be used on another connection. The seat remains reserved for its normal grace period after the replacement socket closes, then expires. This favors immediate replay protection over recovery from an ambiguous lost reply; the client must not claim recovery succeeded without receiving the direct result. A retry with the same request ID on the *same live connection* can return the cached result. Cross-connection retry of a consumed token is intentionally rejected.
+
+An opted-in seat remains reserved for 30 seconds after an unplanned disconnect. Resume is permitted only while `now < expires_at`; at `now >= expires_at`, the token is rejected and the seat is released. Reserved seats still count toward the four-player capacity and appear in the public roster until expiry. The service uses a monotonic clock, sweeps expired seats, and checks expiry before processing commands. A process restart loses all rooms and tokens.
+
+### `leave_room`
+
+```json
+{"version":1,"type":"leave_room","request_id":"l1","payload":{}}
+```
+
+The bound connection alone can leave its current room. The direct result contains `{"command":"leave_room","room_code":"ABC234"}`. Processing Leave immediately removes the seat and invalidates its token; other members receive the updated public snapshot. If the connection closes before the server processes Leave, normal grace semantics apply. If the server processes Leave but its result is lost, the seat is already gone. WebSocket delivery cannot prove that a client received an acknowledgement, so clients must treat an unanswered Leave as an unknown outcome until they reconnect or the reservation expires.
+
 ## Server messages
 
-`command_result` is private to the requesting connection and contains the server-generated `player_id` and `session_id`. These values identify the accepted session but cannot be supplied in a client command.
+`command_result` is private to the requesting connection and contains the server-generated `player_id` and `session_id` for create, join, and resume. These values identify the accepted session but cannot be supplied in a client command. Capable clients also receive `reconnect_token`; it must remain private and is never a public snapshot field.
 
 ```json
 {
@@ -100,3 +122,6 @@ Errors use the versioned envelope and echo a valid request ID when available:
 | `room_code_unavailable` | Secure room-code generation exhausted its collision retries. |
 | `connection_already_joined` | This connection already owns a room session. |
 | `rate_limited` | The connection exceeded the command window. |
+| `invalid_reconnect` | The token is invalid, expired, consumed, or belongs to another room. |
+| `not_in_room` | The connection has no seat to leave. |
+| `reconnect_token_unavailable` | Secure token generation exhausted its collision retries; no session change was applied. |

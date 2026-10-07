@@ -136,9 +136,11 @@ func _render_multiplayer_state() -> void:
 	match multiplayer_flow.state:
 		MultiplayerFlowScript.State.CONNECTING:
 			_show_online_connecting()
+		MultiplayerFlowScript.State.RECOVERING:
+			_show_online_recovering()
 		MultiplayerFlowScript.State.ENTRY, MultiplayerFlowScript.State.SUBMITTING:
 			_show_online_entry(multiplayer_flow.state == MultiplayerFlowScript.State.SUBMITTING)
-		MultiplayerFlowScript.State.LOBBY:
+		MultiplayerFlowScript.State.LOBBY, MultiplayerFlowScript.State.LEAVING:
 			_show_online_lobby()
 		_:
 			_show_online_disconnected()
@@ -151,10 +153,17 @@ func _show_online_connecting() -> void:
 	label.add_theme_font_size_override("font_size", 22)
 	content.add_child(label)
 
+func _show_online_recovering() -> void:
+	subtitle_label.text = "ONLINE • RECOVERING ROOM"
+	var label := Label.new()
+	label.text = "Checking your reserved seat with the room service…"
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(label)
+
 func _show_online_disconnected() -> void:
 	subtitle_label.text = "ONLINE • DISCONNECTED"
 	var notice := Label.new()
-	notice.text = "The service is not connected. Reconnect recovery for an active room arrives in PR 4."
+	notice.text = "The service is not connected. Retry to recover a reserved seat, or create or join another room."
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(notice)
 	var retry := Button.new()
@@ -163,7 +172,10 @@ func _show_online_disconnected() -> void:
 	content.add_child(retry)
 	var back := Button.new()
 	back.text = "Back to play modes"
-	back.pressed.connect(_show_mode_selection)
+	back.pressed.connect(func() -> void:
+		room_client.disconnect_from_service()
+		_show_mode_selection()
+	)
 	content.add_child(back)
 
 func _show_online_entry(pending: bool) -> void:
@@ -286,7 +298,8 @@ func _show_online_lobby() -> void:
 	connection.add_theme_color_override("font_color", Color("62d6a7"))
 	content.add_child(connection)
 	var leave := Button.new()
-	leave.text = "Leave room and return"
+	leave.text = "Leaving room…" if multiplayer_flow.state == MultiplayerFlowScript.State.LEAVING else "Leave room and return"
+	leave.disabled = multiplayer_flow.state == MultiplayerFlowScript.State.LEAVING
 	leave.pressed.connect(func() -> void: multiplayer_flow.leave_lobby())
 	content.add_child(leave)
 
