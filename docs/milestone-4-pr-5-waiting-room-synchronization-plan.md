@@ -7,15 +7,15 @@ Base: Milestone 4 merge commit `59b144bef9d7a5e596faeca58c06f481ce202730` (PR #1
 - The Node room registry owns an integer revision for each room. Create, join, explicit leave, disconnect, resume, and reservation expiry advance it exactly once when the public roster changes. A no-op and a duplicate request do not advance it.
 - A client can opt into revisioned snapshots without changing the four-field snapshot shape received by existing protocol-v1 clients. The Godot Web client opts in; public snapshots add only `revision` and never contain player/session IDs or reconnect credentials.
 - Every connected member receives the same latest revision, names, count, and capacity after a supported transition. Reconnect receives the current authoritative state even if updates were missed while offline.
-- The Godot client rejects same-room snapshots older than its accepted revision and ignores duplicates. An explicit server refresh provides recovery if an update is missed without a disconnect; a bounded periodic refresh ensures convergence even if no later roster change occurs.
+- The Godot client rejects same-room snapshots older than its accepted revision and ignores duplicates. The server periodically rebroadcasts the current snapshot to connected members so a client can recover a missed update even if no later roster change occurs.
 - A reservation expires at `now >= expires_at`. The server removes it before returning a fresh snapshot or admitting a new member. Active members receive the corrected roster promptly. No client calculates authoritative membership or capacity.
 
 ## Threat and failure cases
 
 - Reordered or duplicated snapshots must not roll a lobby back. Cross-room, malformed, privately enriched, or future-protocol messages must be rejected.
-- A replaced socket cannot request refresh or claim another seat. A disconnected client cannot use a room code to read a roster; only its bound server session can refresh.
+- A replaced socket cannot claim another seat or receive roster broadcasts. A disconnected client cannot use a room code to read a roster.
 - A token replay, server restart, or expired reservation cannot revive an old roster. A refresh sent during a transition returns a coherent room revision.
-- Failed or delayed refresh responses must not leave the UI in a permanent pending state or leak an identity. Existing reconnect and Leave semantics remain in force.
+- Delayed or duplicated rebroadcasts must not roll the UI back or leak an identity. Existing reconnect and Leave semantics remain in force.
 
 ## Verification plan
 
