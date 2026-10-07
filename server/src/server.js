@@ -10,11 +10,18 @@ import { decodeClientMessage, errorResponse, recoverRequestId, response } from "
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry } from "./room-registry.js";
 
-export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger } = {}) {
+export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger,
+  sweepIntervalMs = 1_000 } = {}) {
   const connections = new Map();
   let ready = false;
   let shuttingDown = false;
-  const expiryTimer = setInterval(sweepExpiredSeats, 1_000);
+  let refreshTicks = 0;
+  const expiryTimer = setInterval(() => {
+    sweepExpiredSeats();
+    if (++refreshTicks % 5 === 0) {
+      for (const roomCode of registry.roomCodes()) broadcastSnapshot(roomCode);
+    }
+  }, sweepIntervalMs);
   expiryTimer.unref();
 
   const httpServer = http.createServer((request, reply) => {
@@ -125,6 +132,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       } else {
         result = registry.createRoom(message.payload.display_name, context.connectionId, {
           reconnect: message.payload.reconnect === true,
+          sync: message.payload.sync === true,
         });
       }
     } else if (message.type === "join_room") {
@@ -132,13 +140,14 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
         message.payload.room_code,
         message.payload.display_name,
         context.connectionId,
-        { reconnect: message.payload.reconnect === true },
+        { reconnect: message.payload.reconnect === true, sync: message.payload.sync === true },
       );
     } else if (message.type === "resume_room") {
       result = registry.resumeRoom(
         message.payload.room_code,
         message.payload.reconnect_token,
         context.connectionId,
+        { sync: message.payload.sync === true },
       );
     } else {
       result = registry.leaveRoom(context.connectionId);
@@ -176,12 +185,15 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
   }
 
   function broadcastSnapshot(roomCode) {
-    const snapshot = registry.publicSnapshot(roomCode);
-    if (!snapshot) return;
-    const message = response("room_snapshot", snapshot);
+    const legacy = registry.publicSnapshot(roomCode);
+    if (!legacy) return;
+    const revisioned = registry.publicSnapshot(roomCode, { revision: true });
     for (const connectionId of registry.connectionIdsForRoom(roomCode)) {
       const context = connections.get(connectionId);
-      if (context) send(context.websocket, message);
+      if (context) {
+        const session = registry.sessionForConnection(connectionId);
+        send(context.websocket, response("room_snapshot", session?.sync ? revisioned : legacy));
+      }
     }
   }
 

@@ -30,7 +30,7 @@ export class RoomRegistry {
     this.#graceMs = graceMs;
   }
 
-  createRoom(displayName, connectionId, { reconnect = false } = {}) {
+  createRoom(displayName, connectionId, { reconnect = false, sync = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -49,15 +49,15 @@ export class RoomRegistry {
     }
     if (!roomCode) return failure("room_code_unavailable");
 
-    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect);
+    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect, sync);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
-    this.#rooms.set(roomCode, { roomCode, players: [player] });
+    this.#rooms.set(roomCode, { roomCode, players: [player], revision: 1 });
     this.#sessions.set(connectionId, player);
     return success(roomCode, player, this.publicSnapshot(roomCode), token);
   }
 
-  joinRoom(roomCode, displayName, connectionId, { reconnect = false } = {}) {
+  joinRoom(roomCode, displayName, connectionId, { reconnect = false, sync = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -75,10 +75,11 @@ export class RoomRegistry {
       return failure("duplicate_name");
     }
 
-    const player = this.#makePlayer(normalized, connectionId, code, reconnect);
+    const player = this.#makePlayer(normalized, connectionId, code, reconnect, sync);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
     room.players.push(player);
+    room.revision += 1;
     this.#sessions.set(connectionId, player);
     return success(code, player, this.publicSnapshot(code), token);
   }
@@ -94,12 +95,13 @@ export class RoomRegistry {
     if (session.reconnectable) {
       session.connectionId = null;
       session.expiresAt = this.#clock() + this.#graceMs;
+      room.revision += 1;
       return { roomCode: session.roomCode, snapshot: this.publicSnapshot(session.roomCode) };
     }
     return this.#dropPlayer(session);
   }
 
-  resumeRoom(roomCode, token, connectionId) {
+  resumeRoom(roomCode, token, connectionId, { sync = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -119,9 +121,11 @@ export class RoomRegistry {
     }
     this.#tokens.delete(digest);
     player.connectionId = connectionId;
+    player.sync = sync;
     player.expiresAt = null;
     player.sessionId = this.#idGenerator();
     this.#sessions.set(connectionId, player);
+    this.#rooms.get(code).revision += 1;
     return { ...success(code, player, this.publicSnapshot(code), nextToken), replacedConnectionId };
   }
 
@@ -147,7 +151,7 @@ export class RoomRegistry {
     return [...changed];
   }
 
-  publicSnapshot(roomCode) {
+  publicSnapshot(roomCode, { revision = false } = {}) {
     const room = this.#rooms.get(roomCode);
     if (!room) return null;
     return {
@@ -155,6 +159,7 @@ export class RoomRegistry {
       player_names: room.players.map((player) => player.displayName),
       player_count: room.players.length,
       max_players: MAX_PLAYERS_PER_ROOM,
+      ...(revision ? { revision: room.revision } : {}),
     };
   }
 
@@ -170,7 +175,11 @@ export class RoomRegistry {
     return this.#rooms.size;
   }
 
-  #makePlayer(displayName, connectionId, roomCode, reconnectable) {
+  roomCodes() {
+    return [...this.#rooms.keys()];
+  }
+
+  #makePlayer(displayName, connectionId, roomCode, reconnectable, sync) {
     const player = {
       playerId: this.#idGenerator(),
       sessionId: this.#idGenerator(),
@@ -178,6 +187,7 @@ export class RoomRegistry {
       connectionId,
       roomCode,
       reconnectable,
+      sync,
       expiresAt: null,
     };
     return player;
@@ -203,6 +213,7 @@ export class RoomRegistry {
     if (!room) return { roomCode: player.roomCode, snapshot: null };
     room.players = room.players.filter((member) => member !== player);
     if (room.players.length === 0) this.#rooms.delete(player.roomCode);
+    else room.revision += 1;
     return { roomCode: player.roomCode, snapshot: this.publicSnapshot(player.roomCode) };
   }
 }
