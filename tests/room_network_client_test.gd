@@ -92,13 +92,13 @@ func _test_create_join_envelopes_and_unique_ids() -> void:
 	_check(not fixture.client.create_room("Ada"), "A second submission while pending must be rejected")
 	var create_message: Dictionary = JSON.parse_string(fixture.transport.sent[0])
 	_check(create_message.version == 1 and create_message.type == "create_room", "Create must use protocol-v1 envelope")
-	_check(create_message.payload == {"display_name": "Ada", "reconnect": true}, "Create name and reconnect capability must be normalized")
+	_check(create_message.payload == {"display_name": "Ada", "reconnect": true, "sync": true}, "Create name and recovery/sync capabilities must be normalized")
 	_check(Protocol.is_safe_request_id(create_message.request_id), "Create request ID must be safe")
 	fixture.client.ingest_server_text(_error(create_message.request_id, "unknown_room"), fixture.client.connection_generation)
 	_check(fixture.client.join_room(" abc234 ", " Ａｄａ "), "Join should send after the first request resolves")
 	var join_message: Dictionary = JSON.parse_string(fixture.transport.sent[1])
 	_check(join_message.type == "join_room", "Join must use the join command")
-	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada", "reconnect": true}, "Join code, name, and reconnect capability must be normalized")
+	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada", "reconnect": true, "sync": true}, "Join code, name, and recovery/sync capabilities must be normalized")
 	_check(create_message.request_id != join_message.request_id, "Every command must receive a unique request ID")
 
 func _test_response_correlation_identity_and_privacy() -> void:
@@ -167,13 +167,20 @@ func _test_snapshot_validation_and_room_isolation() -> void:
 	fixture.client.ingest_server_text(_command_result(request.request_id, "create_room", "ABC234", "player-a", "secret"), fixture.client.connection_generation)
 	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"], 1), fixture.client.connection_generation)
 	_check(snapshots.size() == 1 and snapshots[0].player_count == 1, "Unsolicited snapshot with null request ID must be accepted")
+	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada", "Ben"], 2, 2), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"], 1), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada", "Ben"], 2, 2), fixture.client.connection_generation)
+	_check(snapshots.size() == 2 and snapshots.back().player_count == 2, "Older and duplicate revisions must not roll the lobby back")
 	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"], 2), fixture.client.connection_generation)
 	var invalid_type: Dictionary = JSON.parse_string(_snapshot("ABC234", ["Ada"], 1))
 	invalid_type.payload.room_code = 123456
 	fixture.client.ingest_server_text(JSON.stringify(invalid_type), fixture.client.connection_generation)
+	var invalid_revision: Dictionary = JSON.parse_string(_snapshot("ABC234", ["Ada"], 1))
+	invalid_revision.payload.revision = -1
+	fixture.client.ingest_server_text(JSON.stringify(invalid_revision), fixture.client.connection_generation)
 	fixture.client.ingest_server_text(_snapshot("XYZ789", ["Mallory"], 1), fixture.client.connection_generation)
-	_check(snapshots.size() == 1, "Invalid and different-room snapshots must not alter the active lobby")
-	_check(warnings.size() == 4, "Rejected snapshots should produce safe protocol warnings")
+	_check(snapshots.size() == 2, "Invalid and different-room snapshots must not alter the active lobby")
+	_check(warnings.size() == 5, "Rejected snapshots should produce safe protocol warnings")
 	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "server_shutdown", "request_id": null, "payload": {"reason": "service_restart"}}), fixture.client.connection_generation)
 	_check(not fixture.client.is_connected_to_service() and fixture.client.session_id.is_empty(), "Valid shutdown must clear private identity")
 	var join_fixture := _connected_client()
@@ -236,12 +243,12 @@ func _command_result(request_id: String, command: String, room_code: String, pla
 func _error(request_id: String, code: String) -> String:
 	return JSON.stringify({"version": 1, "type": "error", "request_id": request_id, "payload": {"code": code}})
 
-func _snapshot(room_code: String, names: Array, count: int) -> String:
+func _snapshot(room_code: String, names: Array, count: int, revision: int = 1) -> String:
 	return JSON.stringify({
 		"version": 1,
 		"type": "room_snapshot",
 		"request_id": null,
-		"payload": {"room_code": room_code, "player_names": names, "player_count": count, "max_players": 4},
+		"payload": {"room_code": room_code, "player_names": names, "player_count": count, "max_players": 4, "revision": revision},
 	})
 
 func _check(condition: bool, message: String) -> void:
