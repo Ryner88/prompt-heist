@@ -49,7 +49,9 @@ Clients that support recovery add `"reconnect":true` to the payload of `create_r
 {"version":1,"type":"resume_room","request_id":"r1","payload":{"room_code":"ABC234","reconnect_token":"43-character-private-base64url-token"}}
 ```
 
-The token is a 32-byte cryptographically random bearer credential encoded as 43 URL-safe characters. The room registry stores its SHA-256 digest. The bounded, private per-connection response cache retains the direct result (including the token) for request-ID idempotency until that connection closes or the entry is evicted. A successful resume atomically consumes the old token, rotates the token and `session_id`, and binds the existing `player_id` and seat to the new connection. The response is a private `command_result` with the new token. A stale socket cannot remove or control the replacement session.
+The token is a 32-byte cryptographically random bearer credential encoded as 43 URL-safe characters. The room registry stores its SHA-256 digest. The bounded, private per-connection response cache retains the direct result (including the token) for request-ID idempotency until that connection closes or the entry is evicted. A successful resume atomically consumes the old token, rotates the token and `session_id`, and binds the existing `player_id` and seat to the new connection. The response is a private `command_result` with the new token. A stale socket cannot remove or control the replacement session, including by claiming another seat while its close is pending.
+
+If the connection is lost after the server commits a resume but before the client receives the new token, the old token cannot be used on another connection. The seat remains reserved for its normal grace period after the replacement socket closes, then expires. This favors immediate replay protection over recovery from an ambiguous lost reply; the client must not claim recovery succeeded without receiving the direct result. A retry with the same request ID on the *same live connection* can return the cached result. Cross-connection retry of a consumed token is intentionally rejected.
 
 An opted-in seat remains reserved for 30 seconds after an unplanned disconnect. Resume is permitted only while `now < expires_at`; at `now >= expires_at`, the token is rejected and the seat is released. Reserved seats still count toward the four-player capacity and appear in the public roster until expiry. The service uses a monotonic clock, sweeps expired seats, and checks expiry before processing commands. A process restart loses all rooms and tokens.
 
@@ -59,7 +61,7 @@ An opted-in seat remains reserved for 30 seconds after an unplanned disconnect. 
 {"version":1,"type":"leave_room","request_id":"l1","payload":{}}
 ```
 
-The bound connection alone can leave its current room. The direct result contains `{"command":"leave_room","room_code":"ABC234"}`. Acknowledged leave immediately removes the seat and invalidates its token; other members receive the updated public snapshot. If leave cannot be acknowledged because the connection is lost, normal grace semantics apply.
+The bound connection alone can leave its current room. The direct result contains `{"command":"leave_room","room_code":"ABC234"}`. Processing Leave immediately removes the seat and invalidates its token; other members receive the updated public snapshot. If the connection closes before the server processes Leave, normal grace semantics apply. If the server processes Leave but its result is lost, the seat is already gone. WebSocket delivery cannot prove that a client received an acknowledgement, so clients must treat an unanswered Leave as an unknown outcome until they reconnect or the reservation expires.
 
 ## Server messages
 

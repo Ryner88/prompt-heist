@@ -13,6 +13,7 @@ const RECONNECT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 export class RoomRegistry {
   #rooms = new Map();
   #sessions = new Map();
+  #retiredConnections = new Set();
   #tokens = new Map();
   #codeGenerator;
   #idGenerator;
@@ -31,6 +32,9 @@ export class RoomRegistry {
 
   createRoom(displayName, connectionId, { reconnect = false } = {}) {
     this.expireReservations();
+    if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
+      return failure("connection_already_joined");
+    }
     const normalized = normalizeName(displayName);
     const nameError = validateName(normalized);
     if (nameError) return failure(nameError);
@@ -55,10 +59,12 @@ export class RoomRegistry {
 
   joinRoom(roomCode, displayName, connectionId, { reconnect = false } = {}) {
     this.expireReservations();
+    if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
+      return failure("connection_already_joined");
+    }
     const code = String(roomCode).trim().toUpperCase();
     const room = this.#rooms.get(code);
     if (!isValidRoomCode(code) || !room) return failure("unknown_room");
-    if (this.#sessions.has(connectionId)) return failure("connection_already_joined");
 
     const normalized = normalizeName(displayName);
     const nameError = validateName(normalized);
@@ -78,6 +84,7 @@ export class RoomRegistry {
   }
 
   removeConnection(connectionId) {
+    this.#retiredConnections.delete(connectionId);
     const session = this.#sessions.get(connectionId);
     if (!session) return null;
     this.#sessions.delete(connectionId);
@@ -94,7 +101,9 @@ export class RoomRegistry {
 
   resumeRoom(roomCode, token, connectionId) {
     this.expireReservations();
-    if (this.#sessions.has(connectionId)) return failure("connection_already_joined");
+    if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
+      return failure("connection_already_joined");
+    }
     const code = String(roomCode).trim().toUpperCase();
     const digest = tokenDigest(token);
     const player = this.#tokens.get(digest);
@@ -104,7 +113,10 @@ export class RoomRegistry {
     const nextToken = this.#issueToken(player);
     if (!nextToken) return failure("reconnect_token_unavailable");
     const replacedConnectionId = player.connectionId;
-    if (replacedConnectionId) this.#sessions.delete(replacedConnectionId);
+    if (replacedConnectionId) {
+      this.#sessions.delete(replacedConnectionId);
+      this.#retiredConnections.add(replacedConnectionId);
+    }
     this.#tokens.delete(digest);
     player.connectionId = connectionId;
     player.expiresAt = null;

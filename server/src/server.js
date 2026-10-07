@@ -49,6 +49,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       websocket,
       limiter: new FixedWindowRateLimiter(),
       requestCache: new Map(),
+      retired: false,
     };
     connections.set(connectionId, context);
     logger("connection_opened", { active_connections: connections.size });
@@ -96,6 +97,9 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
   }
 
   function handleMessage(context, data, isBinary) {
+    // A resumed session invalidates its previous socket immediately, even if
+    // that socket has messages queued before the close handshake finishes.
+    if (context.retired) return;
     sweepExpiredSeats();
     if (!context.limiter.consume()) {
       send(context.websocket, errorResponse("rate_limited", recoverRequestId(data, isBinary)));
@@ -156,7 +160,13 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
     cacheResponse(context, message.request_id, direct);
     send(context.websocket, direct);
     if (result.ok) {
-      if (result.replacedConnectionId) connections.get(result.replacedConnectionId)?.websocket.close(1000, "session replaced");
+      if (result.replacedConnectionId) {
+        const replaced = connections.get(result.replacedConnectionId);
+        if (replaced) {
+          replaced.retired = true;
+          replaced.websocket.close(1000, "session replaced");
+        }
+      }
       if (message.type !== "leave_room" || result.snapshot) broadcastSnapshot(result.roomCode);
     }
   }

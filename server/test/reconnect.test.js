@@ -96,6 +96,20 @@ test("token generation failure preserves the old session and credential", () => 
   assert.equal(unavailable.roomCount(), 0);
 });
 
+test("a replaced socket cannot claim another seat before its close completes", () => {
+  const registry = new RoomRegistry({ codeGenerator: () => "ABC234" });
+  const created = registry.createRoom("Ada", "old", { reconnect: true });
+  const resumed = registry.resumeRoom(created.roomCode, created.reconnectToken, "replacement");
+  assert.equal(resumed.ok, true);
+  assert.equal(registry.createRoom("Ghost", "old").code, "connection_already_joined");
+  assert.equal(registry.joinRoom(created.roomCode, "Ghost", "old").code, "connection_already_joined");
+  assert.equal(registry.resumeRoom(created.roomCode, resumed.reconnectToken, "old").code, "connection_already_joined");
+  assert.equal(registry.publicSnapshot(created.roomCode).player_count, 1);
+  assert.equal(registry.roomCount(), 1);
+  registry.removeConnection("old");
+  assert.equal(registry.sessionForConnection("replacement").playerId, created.playerId);
+});
+
 test("real sockets rotate credentials and stale close cannot evict a resumed seat", async (t) => {
   const server = await startTestServer();
   t.after(() => server.service.close());

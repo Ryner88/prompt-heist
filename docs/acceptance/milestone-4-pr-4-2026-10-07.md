@@ -45,6 +45,12 @@ Public snapshots remained restricted to room code, player names, count, and capa
 
 The first browser automation attempt missed a responsive control; a later run had no join result by its fixed wait. The successful run used the correct control positions and passed the full two-browser path. The cause of the delayed join was not isolated, so it is not counted as a product pass or failure. No browser console error was observed. The driver was an untracked temporary local script, and screenshots plus exact interaction steps are retained here.
 
-Physical mobile devices, other browser engines, external networks, deployed HTTPS/WSS, and production restart behavior were not tested. No persistence exists; process restart intentionally invalidates rooms and tokens. Browser storage is same-tab only. Cross-device recovery is outside this PR.
+Physical mobile devices, other browser engines, external networks, deployed HTTPS/WSS, and production restart behavior were not tested. No persistence exists; process restart intentionally invalidates rooms and tokens. Browser storage is same-tab only and requires working `sessionStorage`; a browser that blocks storage cannot recover after refresh. A committed resume whose private result is lost with the connection cannot be retried using the consumed token on another connection. A committed Leave whose result is lost still releases the seat. These are transport ambiguity limits, not observed failures in the browser run. Cross-device recovery is outside this PR.
 
 This is a local waiting-room acceptance record, not a public-release sign-off. The rollback baseline is PR #9's merge commit `b70ccb6`; no deployed rollback was exercised because there is no public deployment.
+
+## Final review addendum
+
+Sourcery's final review identified a stale-socket window: after resume replaced a connection, that socket could claim a new seat before its close completed. The candidate now retires the old WebSocket context before closing it, and the room registry rejects create, join, and resume from the retired connection. `server/test/reconnect.test.js` has a regression case for this window. The earlier browser evidence above predates this fix; no new browser run is claimed by this addendum.
+
+After the fix, `npm run test:coverage` passed 32/32 tests with 98.60% line, 91.12% branch, and 98.33% function coverage. `npm audit --audit-level=high` found zero vulnerabilities. Godot 4.7.2 passed the 4 registry, 10 game-rule, 6 network-client, and 6 flow cases; the real Node↔Godot integration passed; headless launch and Web export passed. `actionlint .github/workflows/verify.yml` and `git diff --check` passed. These local results require CI to run again on the amended PR head before merging.
