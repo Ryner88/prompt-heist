@@ -32,11 +32,12 @@ func run() -> void:
 	_test_disconnect_and_local_navigation()
 	_test_recovery_and_acknowledged_leave()
 	_test_match_progression_and_abandonment()
+	_test_online_controls_recover_after_match_and_start_error()
 	allocated_nodes.reverse()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("MultiplayerFlow tests passed: 7 cases")
+		print("MultiplayerFlow tests passed: 8 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -207,6 +208,58 @@ func _test_match_progression_and_abandonment() -> void:
 	fixture.client.ingest_server_text(JSON.stringify(finished), generation)
 	fixture.flow.leave_lobby()
 	_check(fixture.flow.state == FlowScript.State.LEAVING, "Players can leave from the heist screens")
+
+func _test_online_controls_recover_after_match_and_start_error() -> void:
+	var main = MainScript.new()
+	allocated_nodes.append(main)
+	main._build_shell()
+	main._initialize_multiplayer()
+	main.multiplayer_flow.state = FlowScript.State.LOBBY
+	main.multiplayer_flow.lobby_snapshot = {
+		"room_code": "ABC234", "player_names": ["Ada", "Ben", "Cy"],
+		"player_count": 3, "max_players": 4,
+	}
+	main._render_multiplayer_state()
+	var start_button: Button = _active_start_button(main)
+	_check(start_button != null and not start_button.disabled, "Three connected seats enable Start heist")
+	if start_button != null:
+		start_button.disabled = true
+		start_button.text = "Starting…"
+	main.room_client.request_failed.emit("player_disconnected", "Wait for everyone to reconnect.")
+	start_button = _active_start_button(main)
+	_check(start_button != null and not start_button.disabled and start_button.text == "Start heist", "Rejected start restores the Start heist control without a room revision")
+	main.online_sabotage_armed = true
+	main.multiplayer_flow.state = FlowScript.State.MATCH
+	main.multiplayer_flow.state_changed.emit(FlowScript.State.MATCH)
+	_check(not main.online_sabotage_armed, "Starting a new heist clears an old sabotage choice")
+	main.online_sabotage_armed = true
+	main.multiplayer_flow.state = FlowScript.State.LOBBY
+	main.multiplayer_flow.state_changed.emit(FlowScript.State.LOBBY)
+	_check(not main.online_sabotage_armed, "Leaving a heist clears an unspent sabotage choice")
+	var fixture := _flow_fixture()
+	var contract: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/match_contract.json"))
+	main.multiplayer_flow = fixture.flow
+	fixture.client.active_room_code = "ABC234"
+	fixture.flow.state = FlowScript.State.MATCH
+	fixture.flow.match_snapshot = contract.valid_public.social_voting.payload.duplicate(true)
+	fixture.flow.match_private = {"vote": null, "sabotage_available": false}
+	main.online_sabotage_armed = true
+	main._clear_content()
+	main._add_online_plan_cards(fixture.flow.match_snapshot, true)
+	for button in main.content.find_children("*", "Button", true, false):
+		if button.text == "Vote for this plan":
+			button.pressed.emit()
+			break
+	_check(not fixture.transport.sent.is_empty(), "A stale sabotage choice does not block a crew vote")
+	if not fixture.transport.sent.is_empty():
+		var vote_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+		_check(vote_request.type == "cast_vote" and not vote_request.payload.has("sabotage"), "A crew vote does not include the stale sabotage choice")
+
+func _active_start_button(main: Control) -> Button:
+	for child in main.content.get_children():
+		if child is Button and child.text == "Start heist" and not child.is_queued_for_deletion():
+			return child
+	return null
 
 func _match_result(request_id: String, command: String) -> String:
 	return JSON.stringify({"version": 1, "type": "command_result", "request_id": request_id, "payload": {"command": command, "room_code": "ABC234"}})
