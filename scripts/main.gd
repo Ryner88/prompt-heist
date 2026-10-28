@@ -66,10 +66,16 @@ func _build_shell() -> void:
 	page.add_child(subtitle_label)
 
 	page.add_child(HSeparator.new())
+	var content_scroll := ScrollContainer.new()
+	content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_scroll.follow_focus = true
+	page.add_child(content_scroll)
 	content = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 14)
-	page.add_child(content)
+	content_scroll.add_child(content)
 
 	status_label = Label.new()
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
