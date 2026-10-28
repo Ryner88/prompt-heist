@@ -13,6 +13,7 @@ var role_is_visible := false
 var title_label: Label
 var subtitle_label: Label
 var content: VBoxContainer
+var content_scroll: ScrollContainer
 var status_label: Label
 var name_input: LineEdit
 var roster: VBoxContainer
@@ -66,10 +67,17 @@ func _build_shell() -> void:
 	page.add_child(subtitle_label)
 
 	page.add_child(HSeparator.new())
+	content_scroll = ScrollContainer.new()
+	content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content_scroll.follow_focus = true
+	page.add_child(content_scroll)
 	content = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 14)
-	page.add_child(content)
+	content_scroll.add_child(content)
 
 	status_label = Label.new()
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -79,6 +87,7 @@ func _build_shell() -> void:
 	page.add_child(status_label)
 
 func _clear_content() -> void:
+	content_scroll.scroll_vertical = 0
 	for child in content.get_children():
 		child.queue_free()
 	status_label.text = ""
@@ -361,7 +370,8 @@ func _show_online_match() -> void:
 
 func _add_online_meters(snapshot: Dictionary) -> void:
 	var meters_data: Dictionary = snapshot.meters
-	var meters := HBoxContainer.new()
+	var meters := GridContainer.new()
+	meters.columns = 1 if size.x < 700 else 3
 	meters.add_theme_constant_override("separation", 24)
 	content.add_child(meters)
 	meters.add_child(_make_meter("TIME", meters_data.time, meters_data.max_time, Color("56cfe1")))
@@ -479,7 +489,8 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 	_add_online_plan_cards(snapshot, not multiplayer_flow.has_voted())
 
 func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
-	var cards := HBoxContainer.new()
+	var cards := GridContainer.new()
+	cards.columns = 1 if size.x < 700 else 3
 	cards.add_theme_constant_override("separation", 14)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
@@ -602,10 +613,12 @@ func _show_lobby() -> void:
 
 	var instruction := Label.new()
 	instruction.text = "Add 3–6 players. Four or more activates the hidden Informant."
+	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	instruction.add_theme_font_size_override("font_size", 20)
 	content.add_child(instruction)
 
-	var entry_row := HBoxContainer.new()
+	var entry_row := GridContainer.new()
+	entry_row.columns = 1 if size.x < 700 else 2
 	entry_row.add_theme_constant_override("separation", 12)
 	content.add_child(entry_row)
 
@@ -670,12 +683,14 @@ func _show_role_reveal() -> void:
 
 	var privacy := Label.new()
 	privacy.text = "Pass the screen to %s. Everyone else: look away." % player.name
+	privacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	privacy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	privacy.add_theme_font_size_override("font_size", 26)
 	content.add_child(privacy)
 
 	var role_card := Label.new()
 	role_card.text = "ROLE HIDDEN"
+	role_card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	role_card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	role_card.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	role_card.custom_minimum_size = Vector2(0, 230)
@@ -710,6 +725,7 @@ func _show_briefing() -> void:
 
 	var mission_title := Label.new()
 	mission_title.text = game.mission.title
+	mission_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	mission_title.add_theme_font_size_override("font_size", 34)
 	mission_title.add_theme_color_override("font_color", Color("f4c95d"))
 	content.add_child(mission_title)
@@ -729,6 +745,7 @@ func _show_briefing() -> void:
 
 	var next_step := Label.new()
 	next_step.text = "Three decisions stand between the crew and a clean extraction. Every vote matters."
+	next_step.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	next_step.add_theme_font_size_override("font_size", 18)
 	next_step.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(next_step)
@@ -743,7 +760,8 @@ func _begin_planning() -> void:
 	_show_planning()
 
 func _add_meters() -> void:
-	var meters := HBoxContainer.new()
+	var meters := GridContainer.new()
+	meters.columns = 1 if size.x < 700 else 3
 	meters.add_theme_constant_override("separation", 24)
 	content.add_child(meters)
 	meters.add_child(_make_meter("TIME", game.time_remaining, GameState.MAX_TIME, Color("56cfe1")))
@@ -772,10 +790,12 @@ func _show_planning() -> void:
 
 	var prompt := Label.new()
 	prompt.text = "Review the options together. Costs always apply; risk shapes suspicion."
+	prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prompt.add_theme_font_size_override("font_size", 18)
 	content.add_child(prompt)
 
-	var cards := HBoxContainer.new()
+	var cards := GridContainer.new()
+	cards.columns = 1 if size.x < 700 else 3
 	cards.add_theme_constant_override("separation", 14)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
@@ -825,6 +845,7 @@ func _show_voting() -> void:
 	var voter: Dictionary = game.players[vote_index]
 	var instruction := Label.new()
 	instruction.text = "Pass the screen to %s. Choose one plan; votes stay hidden until everyone finishes." % voter.name
+	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	instruction.add_theme_font_size_override("font_size", 21)
 	content.add_child(instruction)
@@ -834,7 +855,8 @@ func _show_voting() -> void:
 		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
 		sabotage.pressed.connect(_arm_sabotage.bind(voter.id, sabotage))
 		content.add_child(sabotage)
-	var cards := HBoxContainer.new()
+	var cards := GridContainer.new()
+	cards.columns = 1 if size.x < 700 else 3
 	cards.add_theme_constant_override("separation", 14)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
@@ -874,6 +896,7 @@ func _show_resolution() -> void:
 
 	var selected := Label.new()
 	selected.text = "Selected plan: %s  •  Deterministic score: %d/100" % [latest_result.plan.title, latest_result.score]
+	selected.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	selected.add_theme_font_size_override("font_size", 22)
 	content.add_child(selected)
 	var tally := Label.new()
@@ -886,6 +909,7 @@ func _show_resolution() -> void:
 	if latest_result.was_tie:
 		var tie_note := Label.new()
 		tie_note.text = "Tie resolved by the standing rule: lowest-risk tied plan, then card order."
+		tie_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		tie_note.add_theme_color_override("font_color", Color("f4c95d"))
 		content.add_child(tie_note)
 	var consequence := Label.new()
@@ -896,6 +920,7 @@ func _show_resolution() -> void:
 	if latest_result.mission_failed:
 		var failure := Label.new()
 		failure.text = latest_result.failure_reason
+		failure.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		failure.add_theme_font_size_override("font_size", 20)
 		failure.add_theme_color_override("font_color", Color("ef6f6c"))
 		content.add_child(failure)
@@ -926,12 +951,14 @@ func _show_accusation() -> void:
 	var voter: Dictionary = voters[accusation_index]
 	var instruction := Label.new()
 	instruction.text = "Pass the screen to %s. Who was the Informant?" % voter.name
+	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	instruction.add_theme_font_size_override("font_size", 24)
 	content.add_child(instruction)
 
 	var privacy := Label.new()
 	privacy.text = "Your accusation is private. You cannot vote for yourself."
+	privacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	privacy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	privacy.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(privacy)
@@ -966,6 +993,7 @@ func _show_mission_summary() -> void:
 		"Informant": headline.text = "THE INFORMANT WINS"
 		"Everyone": headline.text = "EVERYONE WINS"
 		_: headline.text = "THE CREW LOSES"
+	headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	headline.add_theme_font_size_override("font_size", 36)
 	headline.add_theme_color_override("font_color", Color("62d6a7") if game.winner == "Crew" or game.winner == "Everyone" else Color("ef6f6c"))
 	content.add_child(headline)
