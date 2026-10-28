@@ -16,9 +16,9 @@ signal match_private_received(state: Dictionary)
 const Protocol = preload("res://scripts/room_protocol.gd")
 const DefaultTransport = preload("res://scripts/websocket_transport.gd")
 const REQUEST_TIMEOUT_MS := 10000
-const RECOVERY_STORAGE_KEY := "prompt_heist_room_recovery_v1"
+const RECOVERY_STORAGE_KEY := "prompt_heist_room_recovery_v2"
 const SEAT_COMMANDS := ["create_room", "join_room", "resume_room"]
-const MATCH_COMMANDS := ["start_match", "ready", "cast_vote", "accuse"]
+const MATCH_COMMANDS := ["start_match", "ready", "cast_vote", "use_ability", "accuse"]
 
 var player_id := ""
 var session_id := ""
@@ -142,6 +142,14 @@ func cast_vote(round_number: int, plan_id: String, sabotage: bool = false) -> bo
 		payload["sabotage"] = true
 	return _send_command("cast_vote", payload)
 
+func use_ability(round_number: int, target_plan_id: String = "") -> bool:
+	if active_room_code.is_empty():
+		return false
+	var payload := {"round": round_number}
+	if not target_plan_id.is_empty():
+		payload["target_plan_id"] = target_plan_id
+	return _send_command("use_ability", payload)
+
 func accuse(suspect_seat: int) -> bool:
 	if active_room_code.is_empty():
 		return false
@@ -174,6 +182,11 @@ func ingest_server_text(text: String, generation: int) -> void:
 		protocol_warning.emit("The room service sent malformed data.")
 		return
 	var parsed: Dictionary = parser.data
+	if parsed.keys().size() == 4 and parsed.get("version") == 1 and parsed.get("type") == "error" and parsed.get("payload") is Dictionary \
+			and parsed.payload.get("code") == "unsupported_version" and parsed.get("request_id") is String \
+			and Protocol.is_safe_request_id(parsed.request_id) and _pending.has(parsed.request_id):
+		_handle_error(parsed)
+		return
 	if parsed.keys().size() != 4 or parsed.get("version") != Protocol.VERSION or not parsed.get("type") is String or not parsed.has("request_id") or not parsed.get("payload") is Dictionary:
 		protocol_warning.emit("The room service sent an invalid protocol message.")
 		return

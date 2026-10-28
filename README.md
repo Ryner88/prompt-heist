@@ -25,6 +25,8 @@ The current prototype supports a complete three-round local pass-and-play missio
 - Three action plans in each of three rounds
 - Private player voting with majority and deterministic tie resolution
 - Private once-per-match Informant sabotage
+- Six one-use specialist abilities during private voting
+- Hidden round complications that the Inside Agent can reveal
 - Deterministic success calculations and mission consequences
 - Immediate mission failure at zero time, seven suspicion, or zero resources
 - Final mission outcome summary
@@ -34,7 +36,7 @@ The current prototype supports a complete three-round local pass-and-play missio
 
 ## Online heists
 
-Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage and every vote stay hidden until the round resolves. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role and the current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. After the recap, once everyone still in the room chooses **Back to the waiting room**, the room reopens with the same code for new players and another heist with fresh roles. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
+Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage, specialist information, and every vote stay private until the round resolves. Specialists can use their ability once per match before casting a vote. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role, ability use, and current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. After the recap, once everyone still in the room chooses **Back to the waiting room**, the room reopens with the same code for new players and another heist with fresh roles. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
 
 ## Next milestone
 
@@ -42,7 +44,7 @@ The mobile and error-state pass, then public deployment and release validation.
 
 ## Authoritative room service
 
-PR 2 introduced a Node.js WebSocket service for version 1 of the room protocol. PR 3 connects the Godot browser client to its create/join boundary. See the [protocol reference](docs/protocol-v1.md) and [architecture decision record](docs/adr/0001-authoritative-room-service.md).
+PR 2 introduced the Node.js WebSocket service. Specialist actions changed the strict private match payload, so the current client and server use [protocol version 2](docs/protocol-v2.md). The [version 1 reference](docs/protocol-v1.md) remains as historical documentation. See also the [architecture decision record](docs/adr/0001-authoritative-room-service.md).
 
 Install and run it locally:
 
@@ -62,7 +64,7 @@ docker run --rm -p 10000:10000 prompt-heist-room-service
 curl --fail http://localhost:10000/healthz
 ```
 
-Rooms are intentionally process-local and ephemeral. Recovery-capable clients reserve a seat for 30 seconds after a transient disconnect; older protocol-v1 clients still release it immediately. An acknowledged Leave releases it immediately. A restart removes every room and any heist in progress. Durable persistence and public deployment are not part of this slice.
+Rooms are intentionally process-local and ephemeral. Current clients reserve a seat for 30 seconds after a transient disconnect. An acknowledged Leave releases it immediately. A restart removes every room and any heist in progress. Version 1 clients are rejected with `unsupported_version` and must update. Durable persistence and public deployment are not part of this slice.
 
 ## Browser room flow
 

@@ -1,7 +1,7 @@
 {
   "valid_public": {
     "social_role_reveal": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -91,7 +91,7 @@
       }
     },
     "social_voting": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -181,7 +181,7 @@
       }
     },
     "social_resolution_sabotaged": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -287,7 +287,7 @@
       }
     },
     "social_accusation": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -393,7 +393,7 @@
       }
     },
     "social_finished_crew_wins": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -553,7 +553,7 @@
       }
     },
     "social_finished_rematch_pending": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -713,7 +713,7 @@
       }
     },
     "closed": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -819,7 +819,7 @@
       }
     },
     "cooperative_voting_seat_offline": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -902,7 +902,7 @@
       }
     },
     "cooperative_resolution_failed": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -989,10 +989,10 @@
             "motorcade": 3
           },
           "was_tie": false,
-          "score": 40,
+          "score": 32,
           "success": false,
           "sabotage_applied": false,
-          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost.",
+          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost. The motorcade requires an extra credential check. Base score fell by 8.",
           "mission_failed": true,
           "failure_reason": "Security identified the crew."
         },
@@ -1001,7 +1001,7 @@
       }
     },
     "cooperative_finished_no_accusation": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -1088,10 +1088,10 @@
             "motorcade": 3
           },
           "was_tie": false,
-          "score": 40,
+          "score": 32,
           "success": false,
           "sabotage_applied": false,
-          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost.",
+          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost. The motorcade requires an extra credential check. Base score fell by 8.",
           "mission_failed": true,
           "failure_reason": "Security identified the crew."
         },
@@ -1120,19 +1120,19 @@
               "round": 1,
               "plan_title": "Stage a Blackout",
               "success": true,
-              "score": 95
+              "score": 87
             },
             {
               "round": 2,
               "plan_title": "Trigger a Decoy Alarm",
               "success": true,
-              "score": 80
+              "score": 72
             },
             {
               "round": 3,
               "plan_title": "Bluff the Motorcade",
               "success": false,
-              "score": 40
+              "score": 32
             }
           ],
           "accusation": null
@@ -1141,7 +1141,7 @@
       }
     },
     "abandoned": {
-      "version": 1,
+      "version": 2,
       "type": "match_snapshot",
       "request_id": null,
       "payload": {
@@ -1226,7 +1226,7 @@
   },
   "valid_private": {
     "informant": {
-      "version": 1,
+      "version": 2,
       "type": "match_private",
       "request_id": null,
       "payload": {
@@ -1235,13 +1235,16 @@
         "seat": 0,
         "role": "Informant",
         "ability": "Secretly increase suspicion while appearing to help the crew.",
+        "ability_available": false,
+        "ability_used": false,
+        "ability_details": "",
         "sabotage_available": false,
         "vote": null,
         "accusation": null
       }
     },
     "crew": {
-      "version": 1,
+      "version": 2,
       "type": "match_private",
       "request_id": null,
       "payload": {
@@ -1249,14 +1252,17 @@
         "revision": 1,
         "seat": 1,
         "role": "Driver",
-        "ability": "Once per match, cancel a failed escape consequence.",
+        "ability": "Once per match during the final vote, prevent the extra loss if the escape plan fails.",
+        "ability_available": false,
+        "ability_used": false,
+        "ability_details": "",
         "sabotage_available": false,
         "vote": null,
         "accusation": null
       }
     },
     "informant_voted": {
-      "version": 1,
+      "version": 2,
       "type": "match_private",
       "request_id": null,
       "payload": {
@@ -1265,13 +1271,16 @@
         "seat": 0,
         "role": "Informant",
         "ability": "Secretly increase suspicion while appearing to help the crew.",
+        "ability_available": false,
+        "ability_used": false,
+        "ability_details": "",
         "sabotage_available": false,
         "vote": "ghost",
         "accusation": null
       }
     },
     "crew_accused": {
-      "version": 1,
+      "version": 2,
       "type": "match_private",
       "request_id": null,
       "payload": {
@@ -1279,7 +1288,10 @@
         "revision": 46,
         "seat": 1,
         "role": "Driver",
-        "ability": "Once per match, cancel a failed escape consequence.",
+        "ability": "Once per match during the final vote, prevent the extra loss if the escape plan fails.",
+        "ability_available": false,
+        "ability_used": false,
+        "ability_details": "",
         "sabotage_available": false,
         "vote": null,
         "accusation": 0

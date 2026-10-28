@@ -54,10 +54,11 @@ test("rejects empty, malformed, binary, and oversized messages", () => {
 
 test("rejects unsupported versions and commands consistently", () => {
   const old = command("create_room", "old-1", { display_name: "Ada" });
-  old.version = 0;
+  old.version = 1;
   const versionError = decodeClientMessage(JSON.stringify(old)).response;
   assert.equal(versionError.request_id, "old-1");
   assert.equal(versionError.payload.code, "unsupported_version");
+  assert.equal(versionError.version, 1, "A version 1 client can read its upgrade error");
 
   const commandError = decodeClientMessage(
     JSON.stringify(command("become_host", "bad-1", {})),

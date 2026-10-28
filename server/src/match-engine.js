@@ -44,13 +44,20 @@ export const ROUND_PLANS = Object.freeze([
 ].map((plans) => Object.freeze(plans.map((plan) => Object.freeze(plan)))));
 
 export const ROLE_TEMPLATES = Object.freeze([
-  { role: "Mastermind", ability: "Once per match, reveal the risk level of every proposed plan." },
-  { role: "Hacker", ability: "Once per match, reduce digital-security risk by one level." },
-  { role: "Driver", ability: "Once per match, cancel a failed escape consequence." },
-  { role: "Inside Agent", ability: "Once per match, reveal one hidden mission complication." },
-  { role: "Security Specialist", ability: "Once per match, block one point of suspicion." },
-  { role: "Fixer", ability: "Once per match, recover one spent team resource." },
+  { role: "Mastermind", ability: "Once per match during voting, reveal every current plan's hidden base success score." },
+  { role: "Hacker", ability: "Once per match during voting, reduce one digital plan's risk by one this round." },
+  { role: "Driver", ability: "Once per match during the final vote, prevent the extra loss if the escape plan fails." },
+  { role: "Inside Agent", ability: "Once per match during voting, reveal this round's hidden mission complication." },
+  { role: "Security Specialist", ability: "Once per match during voting, block one point of suspicion gained this round." },
+  { role: "Fixer", ability: "Once per match during voting, recover one spent team resource before resolution." },
 ]);
+
+export const DIGITAL_PLAN_IDS = Object.freeze(["spoof", "blackout", "drone"]);
+export const HIDDEN_COMPLICATIONS = Object.freeze([
+  { plan_id: "blackout", score_penalty: 8, description: "Backup lighting makes the blackout harder to exploit." },
+  { plan_id: "decoy", score_penalty: 8, description: "A second patrol ignores the decoy alarm." },
+  { plan_id: "motorcade", score_penalty: 8, description: "The motorcade requires an extra credential check." },
+].map((entry) => Object.freeze(entry)));
 
 export const INFORMANT_ROLE = Object.freeze({
   role: "Informant",
@@ -71,6 +78,11 @@ export class HeistMatch {
   #accusations = new Map();
   #ready = new Set();
   #sabotagePending = false;
+  #abilityUsed = new Set();
+  #abilityDetails = new Map();
+  #driverProtectionPending = false;
+  #securityProtectionPending = false;
+  #hackerTarget = null;
 
   constructor(players, { random = randomInt } = {}) {
     if (!Array.isArray(players) || players.length < MIN_MATCH_PLAYERS || players.length > ROLE_TEMPLATES.length) {
@@ -196,6 +208,48 @@ export class HeistMatch {
     return { ok: true, changed: true };
   }
 
+  useAbility(playerId, round, targetPlanId = null) {
+    const seat = this.seatFor(playerId);
+    if (!seat) return failure("not_in_match");
+    if (this.phase !== "voting" || round !== this.round || this.#votes.has(seat.seat)) return failure("stale_action");
+    if (seat.seat === this.#informantSeat || this.#abilityUsed.has(seat.seat)) return failure("ability_unavailable");
+    if (seat.role !== "Hacker" && targetPlanId !== null) return failure("invalid_ability_target");
+    const complication = HIDDEN_COMPLICATIONS[this.round - 1];
+    let details = "";
+    switch (seat.role) {
+      case "Mastermind":
+        details = this.currentPlans().map((plan) => `${plan.title}: base success ${plan.base_success}/100`).join(" • ");
+        break;
+      case "Inside Agent":
+        details = `${complication.description} ${this.currentPlans().find((plan) => plan.id === complication.plan_id).title} loses ${complication.score_penalty} score.`;
+        break;
+      case "Hacker":
+        if (!DIGITAL_PLAN_IDS.includes(targetPlanId) || !this.currentPlans().some((plan) => plan.id === targetPlanId)) return failure("invalid_ability_target");
+        this.#hackerTarget = targetPlanId;
+        details = `${this.currentPlans().find((plan) => plan.id === targetPlanId).title} has one less risk this round.`;
+        break;
+      case "Driver":
+        if (this.round !== TOTAL_ROUNDS) return failure("ability_unavailable");
+        this.#driverProtectionPending = true;
+        details = "The final escape is protected from a failed plan's extra suspicion and resource loss.";
+        break;
+      case "Security Specialist":
+        this.#securityProtectionPending = true;
+        details = "One point of suspicion gained this round will be blocked.";
+        break;
+      case "Fixer":
+        if (this.resources >= MAX_RESOURCES) return failure("ability_unavailable");
+        this.resources += 1;
+        details = "One team resource was recovered.";
+        break;
+      default:
+        return failure("ability_unavailable");
+    }
+    this.#abilityUsed.add(seat.seat);
+    this.#abilityDetails.set(seat.seat, { round: this.round, text: details });
+    return { ok: true, changed: true };
+  }
+
   accuse(playerId, suspectSeat) {
     const seat = this.seatFor(playerId);
     if (!seat) return failure("not_in_match");
@@ -228,7 +282,7 @@ export class HeistMatch {
         max_resources: MAX_RESOURCES,
       },
       mission: { ...MISSION },
-      plans: this.currentPlans().map((plan) => pick(plan, PUBLIC_PLAN_FIELDS)),
+      plans: this.currentPlans().map((plan) => ({ ...pick(plan, PUBLIC_PLAN_FIELDS), risk: this.#effectiveRisk(plan) })),
       seats: this.#seats.map((seat) => ({
         seat: seat.seat,
         name: seat.name,
@@ -254,6 +308,12 @@ export class HeistMatch {
       seat: seat.seat,
       role: seat.role,
       ability: seat.ability,
+      ability_available: this.phase === "voting" && !informant && !this.#abilityUsed.has(seat.seat)
+        && !this.#votes.has(seat.seat) && (seat.role !== "Driver" || this.round === TOTAL_ROUNDS)
+        && (seat.role !== "Fixer" || this.resources < MAX_RESOURCES),
+      ability_used: this.#abilityUsed.has(seat.seat),
+      ability_details: this.#abilityDetails.get(seat.seat)?.round === this.round
+        ? this.#abilityDetails.get(seat.seat).text : "",
       sabotage_available: informant && this.phase === "voting" && !this.sabotageUsed && !this.#votes.has(seat.seat),
       vote: this.phase === "voting" ? this.#votes.get(seat.seat) ?? null : null,
       accusation: this.phase === "accusation" ? this.#accusations.get(seat.seat) ?? null : null,
@@ -285,6 +345,10 @@ export class HeistMatch {
     }
   }
 
+  #effectiveRisk(plan) {
+    return Math.max(0, plan.risk - (plan.id === this.#hackerTarget ? 1 : 0));
+  }
+
   #resolveVote() {
     const plans = this.currentPlans();
     const tallies = Object.fromEntries(plans.map((plan) => [plan.id, 0]));
@@ -305,22 +369,28 @@ export class HeistMatch {
     // Ties are deterministic: the lowest-risk tied plan wins, then card order.
     let selected = plans.find((plan) => plan.id === leaders[0]);
     for (const plan of plans) {
-      if (leaders.includes(plan.id) && plan.risk < selected.risk) selected = plan;
+      if (leaders.includes(plan.id) && this.#effectiveRisk(plan) < this.#effectiveRisk(selected)) selected = plan;
     }
 
     let score = selected.base_success + this.resources * 3 - this.suspicion * 4;
+    const complication = HIDDEN_COMPLICATIONS[this.round - 1];
+    const complicationApplied = selected.id === complication.plan_id;
+    if (complicationApplied) score -= complication.score_penalty;
     if (this.resources < selected.resource_cost) score -= (selected.resource_cost - this.resources) * 15;
     if (this.timeRemaining < selected.time_cost) score -= (selected.time_cost - this.timeRemaining) * 20;
     score = Math.min(95, Math.max(5, score));
     const success = score >= SUCCESS_THRESHOLD;
 
+    const priorSuspicion = this.suspicion;
+    const risk = this.#effectiveRisk(selected);
+    const driverProtected = !success && this.#driverProtectionPending;
     this.timeRemaining = Math.max(0, this.timeRemaining - selected.time_cost);
     this.resources = Math.max(0, this.resources - selected.resource_cost);
     if (success) {
-      this.suspicion = Math.max(0, this.suspicion + selected.risk - 2);
+      this.suspicion = Math.max(0, this.suspicion + risk - 2);
     } else {
-      this.suspicion = Math.min(MAX_SUSPICION, this.suspicion + selected.risk + 1);
-      this.resources = Math.max(0, this.resources - 1);
+      this.suspicion = Math.min(MAX_SUSPICION, this.suspicion + risk + (driverProtected ? 0 : 1));
+      if (!driverProtected) this.resources = Math.max(0, this.resources - 1);
     }
 
     const sabotageApplied = this.#sabotagePending;
@@ -328,12 +398,19 @@ export class HeistMatch {
       this.suspicion = Math.min(MAX_SUSPICION, this.suspicion + 2);
       this.#sabotagePending = false;
     }
+    const suspicionBlocked = this.#securityProtectionPending && this.suspicion > priorSuspicion;
+    if (suspicionBlocked) this.suspicion -= 1;
 
     this.#evaluateMissionFailure();
     let consequence = success
       ? `${selected.title} works. The crew stays ahead of security and preserves momentum.`
-      : `${selected.title} breaks down under pressure. Security closes in and an extra resource is lost.`;
+      : driverProtected
+        ? `${selected.title} breaks down under pressure. The Driver prevents the extra suspicion and resource loss.`
+        : `${selected.title} breaks down under pressure. Security closes in and an extra resource is lost.`;
+    if (complicationApplied) consequence += ` ${complication.description} Base score fell by ${complication.score_penalty}.`;
+    if (selected.id === this.#hackerTarget) consequence += " A Hacker reduced this plan's risk by one.";
     if (sabotageApplied) consequence += " An unexplained complication raises suspicion by 2.";
+    if (suspicionBlocked) consequence += " A Security Specialist blocked one suspicion.";
 
     this.lastResult = {
       round: this.round,
@@ -351,6 +428,9 @@ export class HeistMatch {
     this.history.push({ round: this.round, plan_title: selected.title, success, score });
     this.#votes.clear();
     this.#ready.clear();
+    this.#driverProtectionPending = false;
+    this.#securityProtectionPending = false;
+    this.#hackerTarget = null;
     this.phase = "resolution";
   }
 

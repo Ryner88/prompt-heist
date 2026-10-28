@@ -114,6 +114,12 @@ func vote(plan_id: String, sabotage: bool = false) -> bool:
 	_set_feedback("")
 	return client.cast_vote(match_snapshot.round, plan_id, sabotage)
 
+func use_ability(target_plan_id: String = "") -> bool:
+	if not can_act() or match_snapshot.phase != "voting" or not bool(match_private.get("ability_available", false)):
+		return false
+	_set_feedback("")
+	return client.use_ability(match_snapshot.round, target_plan_id)
+
 func accuse(suspect_seat: int) -> bool:
 	if not can_act() or match_snapshot.phase != "accusation" or is_informant() or has_accused():
 		return false

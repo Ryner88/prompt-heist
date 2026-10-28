@@ -8,7 +8,7 @@ const address = await service.listen();
 const url = `ws://127.0.0.1:${address.port}/ws`;
 
 function envelope(type, requestId, payload) {
-  return { version: 1, type, request_id: requestId, payload };
+  return { version: 2, type, request_id: requestId, payload };
 }
 
 async function client() {

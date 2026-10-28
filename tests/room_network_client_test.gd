@@ -59,10 +59,11 @@ func run() -> void:
 	_test_resume_rotation_and_invalid_credential()
 	_test_match_contract_validation()
 	_test_match_messages_and_commands()
+	_test_old_server_upgrade_error()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("RoomNetworkClient tests passed: 8 cases")
+		print("RoomNetworkClient tests passed: 9 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -93,7 +94,7 @@ func _test_create_join_envelopes_and_unique_ids() -> void:
 	_check(fixture.client.create_room("  Ada  "), "Create should send when connected")
 	_check(not fixture.client.create_room("Ada"), "A second submission while pending must be rejected")
 	var create_message: Dictionary = JSON.parse_string(fixture.transport.sent[0])
-	_check(create_message.version == 1 and create_message.type == "create_room", "Create must use protocol-v1 envelope")
+	_check(create_message.version == 2 and create_message.type == "create_room", "Create must use protocol-v2 envelope")
 	_check(create_message.payload == {"display_name": "Ada", "reconnect": true, "sync": true, "game": true}, "Create name and recovery/sync/game capabilities must be normalized")
 	_check(Protocol.is_safe_request_id(create_message.request_id), "Create request ID must be safe")
 	fixture.client.ingest_server_text(_error(create_message.request_id, "unknown_room"), fixture.client.connection_generation)
@@ -139,14 +140,14 @@ func _test_untrusted_messages_and_stale_generation() -> void:
 	var warnings: Array[String] = []
 	fixture.client.protocol_warning.connect(func(message: String) -> void: warnings.append(message))
 	fixture.client.ingest_server_text("{", fixture.client.connection_generation)
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "mystery", "request_id": null, "payload": {}}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "mystery", "request_id": null, "payload": {}}), fixture.client.connection_generation)
 	_check(warnings.size() == 2, "Malformed and unknown server messages must be handled safely")
 	fixture.client.create_room("Ada")
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "error", "request_id": null, "payload": {"code": "invalid_message"}}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "error", "request_id": null, "payload": {"code": "invalid_message"}}), fixture.client.connection_generation)
 	_check(fixture.client.has_pending_request(), "Uncorrelated errors must not resolve a pending request")
 	_check(warnings.size() == 3, "Uncorrelated errors should produce safe protocol warnings")
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "room_snapshot", "request_id": null, "payload": {}, "internal": true}), fixture.client.connection_generation)
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "server_shutdown", "request_id": null, "payload": {"reason": "other"}}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "room_snapshot", "request_id": null, "payload": {}, "internal": true}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "server_shutdown", "request_id": null, "payload": {"reason": "other"}}), fixture.client.connection_generation)
 	_check(warnings.size() == 5 and fixture.client.is_connected_to_service(), "Extra envelope fields and malformed shutdown notices must be ignored")
 	var old_generation: int = fixture.client.connection_generation
 	fixture.client.disconnect_from_service()
@@ -183,7 +184,7 @@ func _test_snapshot_validation_and_room_isolation() -> void:
 	fixture.client.ingest_server_text(_snapshot("XYZ789", ["Mallory"], 1), fixture.client.connection_generation)
 	_check(snapshots.size() == 2, "Invalid and different-room snapshots must not alter the active lobby")
 	_check(warnings.size() == 5, "Rejected snapshots should produce safe protocol warnings")
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "server_shutdown", "request_id": null, "payload": {"reason": "service_restart"}}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "server_shutdown", "request_id": null, "payload": {"reason": "service_restart"}}), fixture.client.connection_generation)
 	_check(not fixture.client.is_connected_to_service() and fixture.client.session_id.is_empty(), "Valid shutdown must clear private identity")
 	var join_fixture := _connected_client()
 	join_fixture.client.join_room("ABC234", "Ben")
@@ -341,8 +342,17 @@ func _match_contract() -> Dictionary:
 		return {}
 	return parsed
 
+func _test_old_server_upgrade_error() -> void:
+	var fixture := _connected_client()
+	var errors: Array[String] = []
+	fixture.client.request_failed.connect(func(code: String, _message: String) -> void: errors.append(code))
+	_check(fixture.client.create_room("Ada"), "A version 2 client should send a create request")
+	var request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "error", "request_id": request.request_id, "payload": {"code": "unsupported_version"}}), fixture.client.connection_generation)
+	_check(errors == ["unsupported_version"] and not fixture.client.has_pending_request(), "An old service's upgrade error should be readable and release the request")
+
 func _match_result(request_id: String, command: String) -> String:
-	return JSON.stringify({"version": 1, "type": "command_result", "request_id": request_id, "payload": {"command": command, "room_code": "ABC234"}})
+	return JSON.stringify({"version": 2, "type": "command_result", "request_id": request_id, "payload": {"command": command, "room_code": "ABC234"}})
 
 func _connected_client() -> Dictionary:
 	var transport := FakeTransport.new()
@@ -355,18 +365,18 @@ func _connected_client() -> Dictionary:
 
 func _command_result(request_id: String, command: String, room_code: String, player_id: String, session_id: String) -> String:
 	return JSON.stringify({
-		"version": 1,
+		"version": 2,
 		"type": "command_result",
 		"request_id": request_id,
 		"payload": {"command": command, "room_code": room_code, "player_id": player_id, "session_id": session_id, "reconnect_token": "A".repeat(43)},
 	})
 
 func _error(request_id: String, code: String) -> String:
-	return JSON.stringify({"version": 1, "type": "error", "request_id": request_id, "payload": {"code": code}})
+	return JSON.stringify({"version": 2, "type": "error", "request_id": request_id, "payload": {"code": code}})
 
 func _snapshot(room_code: String, names: Array, count: int, revision: int = 1) -> String:
 	return JSON.stringify({
-		"version": 1,
+		"version": 2,
 		"type": "room_snapshot",
 		"request_id": null,
 		"payload": {"room_code": room_code, "player_names": names, "player_count": count, "max_players": 4, "revision": revision},

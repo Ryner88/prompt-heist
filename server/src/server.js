@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   MAX_PAYLOAD_BYTES,
+  PROTOCOL_VERSION,
   REQUEST_CACHE_SIZE,
   WEBSOCKET_PATH,
 } from "./constants.js";
@@ -31,7 +32,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
     if (request.method === "GET" && request.url === "/healthz") {
       const healthy = ready && !shuttingDown;
       reply.writeHead(healthy ? 200 : 503, { "content-type": "application/json" });
-      reply.end(JSON.stringify({ status: healthy ? "ready" : "unavailable", protocol_version: 1 }));
+      reply.end(JSON.stringify({ status: healthy ? "ready" : "unavailable", protocol_version: PROTOCOL_VERSION }));
       return;
     }
     reply.writeHead(404, { "content-type": "application/json" });
@@ -197,6 +198,9 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       case "cast_vote":
         return registry.matchAction(context.connectionId, (match, playerId) =>
           match.castVote(playerId, payload.round, payload.plan_id, { sabotage: payload.sabotage === true }));
+      case "use_ability":
+        return registry.matchAction(context.connectionId, (match, playerId) =>
+          match.useAbility(playerId, payload.round, payload.target_plan_id ?? null));
       default:
         return registry.matchAction(context.connectionId, (match, playerId) => match.accuse(playerId, payload.suspect_seat));
     }
@@ -243,7 +247,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
 
 // Commands whose direct result binds a seat and carries its private identity.
 const SEAT_COMMANDS = new Set(["create_room", "join_room", "resume_room"]);
-const MATCH_COMMANDS = new Set(["start_match", "ready", "cast_vote", "accuse"]);
+const MATCH_COMMANDS = new Set(["start_match", "ready", "cast_vote", "use_ability", "accuse"]);
 
 function cacheResponse(context, requestId, message) {
   context.requestCache.set(requestId, message);

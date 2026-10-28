@@ -18,6 +18,20 @@ const TOTAL_ROUNDS := 3
 const MAX_TIME := 12
 const MAX_SUSPICION := 10
 const MAX_RESOURCES := 8
+const DIGITAL_PLAN_IDS := ["spoof", "blackout", "drone"]
+const HIDDEN_COMPLICATIONS := [
+	{"plan_id": "blackout", "score_penalty": 8, "description": "Backup lighting makes the blackout harder to exploit."},
+	{"plan_id": "decoy", "score_penalty": 8, "description": "A second patrol ignores the decoy alarm."},
+	{"plan_id": "motorcade", "score_penalty": 8, "description": "The motorcade requires an extra credential check."},
+]
+const ROLE_TEMPLATES := [
+	{"role": "Mastermind", "ability": "Once per match during voting, reveal every current plan's hidden base success score."},
+	{"role": "Hacker", "ability": "Once per match during voting, reduce one digital plan's risk by one this round."},
+	{"role": "Driver", "ability": "Once per match during the final vote, prevent the extra loss if the escape plan fails."},
+	{"role": "Inside Agent", "ability": "Once per match during voting, reveal this round's hidden mission complication."},
+	{"role": "Security Specialist", "ability": "Once per match during voting, block one point of suspicion gained this round."},
+	{"role": "Fixer", "ability": "Once per match during voting, recover one spent team resource before resolution."},
+]
 
 var phase: Phase = Phase.LOBBY
 var players: Array[Dictionary] = []
@@ -30,6 +44,9 @@ var votes: Dictionary = {}
 var round_history: Array[Dictionary] = []
 var informant_sabotage_used := false
 var informant_sabotage_pending := false
+var hacker_target := ""
+var driver_protection_pending := false
+var security_protection_pending := false
 var mission_failed := false
 var failure_reason := ""
 var accusation_votes: Dictionary = {}
@@ -74,6 +91,9 @@ func reset_game() -> void:
 	round_history.clear()
 	informant_sabotage_used = false
 	informant_sabotage_pending = false
+	hacker_target = ""
+	driver_protection_pending = false
+	security_protection_pending = false
 	mission_failed = false
 	failure_reason = ""
 	accusation_votes.clear()
@@ -111,18 +131,13 @@ func start_match(rng: RandomNumberGenerator) -> Dictionary:
 	if not can_start():
 		return {"ok": false, "error": "At least three players are required."}
 
-	var role_templates := [
-		{"role": "Mastermind", "ability": "Once per match, reveal the risk level of every proposed plan."},
-		{"role": "Hacker", "ability": "Once per match, reduce digital-security risk by one level."},
-		{"role": "Driver", "ability": "Once per match, cancel a failed escape consequence."},
-		{"role": "Inside Agent", "ability": "Once per match, reveal one hidden mission complication."},
-		{"role": "Security Specialist", "ability": "Once per match, block one point of suspicion."},
-		{"role": "Fixer", "ability": "Once per match, recover one spent team resource."},
-	]
+	var role_templates: Array = ROLE_TEMPLATES.duplicate(true)
 	role_templates.shuffle()
 	for index in players.size():
 		players[index].role = role_templates[index].role
 		players[index].ability = role_templates[index].ability
+		players[index].ability_used = false
+		players[index].ability_details = ""
 
 	# Four or more players creates the social-deduction version of the match.
 	if players.size() >= 4:
@@ -160,11 +175,65 @@ func cast_vote(player_id: int, plan_id: String) -> Dictionary:
 	votes[player_id] = plan_id
 	return {"ok": true, "complete": votes.size() == players.size()}
 
+func use_ability(player_id: int, target_plan_id: String = "") -> Dictionary:
+	if phase != Phase.VOTING or votes.has(player_id):
+		return {"ok": false, "error": "Use your ability before voting."}
+	var player := get_player(player_id)
+	if player.is_empty() or is_informant(player_id) or bool(player.get("ability_used", false)):
+		return {"ok": false, "error": "Your role ability is unavailable."}
+	if player.role != "Hacker" and not target_plan_id.is_empty():
+		return {"ok": false, "error": "That ability does not take a plan."}
+	var details := ""
+	match player.role:
+		"Mastermind":
+			var scores: Array[String] = []
+			for plan in get_current_plans():
+				scores.append("%s: base success %d/100" % [plan.title, plan.base_success])
+			details = " • ".join(scores)
+		"Inside Agent":
+			var complication: Dictionary = HIDDEN_COMPLICATIONS[current_round - 1]
+			details = "%s %s loses %d score." % [complication.description, get_plan(complication.plan_id).title, complication.score_penalty]
+		"Hacker":
+			if not DIGITAL_PLAN_IDS.has(target_plan_id) or get_plan(target_plan_id).is_empty():
+				return {"ok": false, "error": "Choose a digital plan this round."}
+			hacker_target = target_plan_id
+			details = "%s has one less risk this round." % get_plan(target_plan_id).title
+		"Driver":
+			if current_round != TOTAL_ROUNDS:
+				return {"ok": false, "error": "The Driver ability is available on the final vote."}
+			driver_protection_pending = true
+			details = "The final escape is protected from a failed plan's extra suspicion and resource loss."
+		"Security Specialist":
+			security_protection_pending = true
+			details = "One point of suspicion gained this round will be blocked."
+		"Fixer":
+			if resources >= MAX_RESOURCES:
+				return {"ok": false, "error": "Resources are already full."}
+			resources += 1
+			details = "One team resource was recovered."
+		_:
+			return {"ok": false, "error": "Your role ability is unavailable."}
+	player.ability_used = true
+	player.ability_details = details
+	player.ability_round = current_round
+	return {"ok": true, "details": details}
+
+func ability_available(player_id: int) -> bool:
+	var player := get_player(player_id)
+	return phase == Phase.VOTING and not votes.has(player_id) and not player.is_empty() and not is_informant(player_id) \
+		and not bool(player.get("ability_used", false)) and (player.role != "Driver" or current_round == TOTAL_ROUNDS) \
+		and (player.role != "Fixer" or resources < MAX_RESOURCES)
+
+func effective_risk(plan: Dictionary) -> int:
+	return maxi(0, int(plan.risk) - (1 if plan.id == hacker_target else 0))
+
 func arm_informant_sabotage(player_id: int) -> Dictionary:
 	if phase != Phase.VOTING:
 		return {"ok": false, "error": "Sabotage is only available during private planning."}
 	if not is_informant(player_id):
 		return {"ok": false, "error": "Only the Informant can sabotage the mission."}
+	if votes.has(player_id):
+		return {"ok": false, "error": "Sabotage must be chosen before your vote."}
 	if informant_sabotage_used:
 		return {"ok": false, "error": "Sabotage has already been used this match."}
 	informant_sabotage_used = true
@@ -194,11 +263,15 @@ func resolve_vote() -> Dictionary:
 	# Ties are deterministic: the lowest-risk tied plan wins, then card order.
 	var selected_id: String = leaders[0]
 	for plan in get_current_plans():
-		if plan.id in leaders and plan.risk < get_plan(selected_id).risk:
+		if plan.id in leaders and effective_risk(plan) < effective_risk(get_plan(selected_id)):
 			selected_id = plan.id
 
 	var selected_plan := get_plan(selected_id)
 	var score: int = selected_plan.base_success + resources * 3 - suspicion * 4
+	var complication: Dictionary = HIDDEN_COMPLICATIONS[current_round - 1]
+	var complication_applied: bool = selected_plan.id == complication.plan_id
+	if complication_applied:
+		score -= int(complication.score_penalty)
 	if resources < selected_plan.resource_cost:
 		score -= (selected_plan.resource_cost - resources) * 15
 	if time_remaining < selected_plan.time_cost:
@@ -206,23 +279,36 @@ func resolve_vote() -> Dictionary:
 	score = clampi(score, 5, 95)
 	var succeeded := score >= 70
 
+	var prior_suspicion := suspicion
+	var risk := effective_risk(selected_plan)
+	var driver_protected := not succeeded and driver_protection_pending
 	time_remaining = maxi(0, time_remaining - selected_plan.time_cost)
 	resources = maxi(0, resources - selected_plan.resource_cost)
 	if succeeded:
-		suspicion = maxi(0, suspicion + selected_plan.risk - 2)
+		suspicion = maxi(0, suspicion + risk - 2)
 	else:
-		suspicion = mini(MAX_SUSPICION, suspicion + selected_plan.risk + 1)
-		resources = maxi(0, resources - 1)
+		suspicion = mini(MAX_SUSPICION, suspicion + risk + (0 if driver_protected else 1))
+		if not driver_protected:
+			resources = maxi(0, resources - 1)
 
 	var sabotage_applied := informant_sabotage_pending
 	if sabotage_applied:
 		suspicion = mini(MAX_SUSPICION, suspicion + 2)
 		informant_sabotage_pending = false
+	var suspicion_blocked := security_protection_pending and suspicion > prior_suspicion
+	if suspicion_blocked:
+		suspicion -= 1
 
 	_evaluate_mission_failure()
-	var consequence := _build_consequence(selected_plan, succeeded)
+	var consequence := _build_consequence(selected_plan, succeeded, driver_protected)
+	if complication_applied:
+		consequence += " %s Base score fell by %d." % [complication.description, complication.score_penalty]
+	if selected_plan.id == hacker_target:
+		consequence += " A Hacker reduced this plan's risk by one."
 	if sabotage_applied:
 		consequence += " An unexplained complication raises suspicion by 2."
+	if suspicion_blocked:
+		consequence += " A Security Specialist blocked one suspicion."
 
 	var result := {
 		"ok": true,
@@ -238,6 +324,9 @@ func resolve_vote() -> Dictionary:
 		"failure_reason": failure_reason,
 	}
 	round_history.append(result)
+	hacker_target = ""
+	driver_protection_pending = false
+	security_protection_pending = false
 	phase = Phase.RESOLUTION
 	return result
 
@@ -360,9 +449,11 @@ func _evaluate_mission_failure() -> void:
 	if mission_failed:
 		winner = "Informant" if informant_player_id != -1 else "Nobody"
 
-func _build_consequence(plan: Dictionary, succeeded: bool) -> String:
+func _build_consequence(plan: Dictionary, succeeded: bool, driver_protected: bool = false) -> String:
 	if succeeded:
 		return "%s works. The crew stays ahead of security and preserves momentum." % plan.title
+	if driver_protected:
+		return "%s breaks down under pressure. The Driver prevents the extra suspicion and resource loss." % plan.title
 	return "%s breaks down under pressure. Security closes in and an extra resource is lost." % plan.title
 
 func is_informant(player_id: int) -> bool:

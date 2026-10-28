@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import WebSocket from "ws";
 import { createPromptHeistServer } from "../src/server.js";
+import { PROTOCOL_VERSION } from "../src/constants.js";
 
 export async function startTestServer(options = {}) {
   const logs = [];
@@ -65,7 +66,7 @@ export async function connectClient(url) {
 }
 
 export function command(type, requestId, payload) {
-  return { version: 1, type, request_id: requestId, payload };
+  return { version: PROTOCOL_VERSION, type, request_id: requestId, payload };
 }
 
 export async function createRoom(client, name = "Ada", requestId = "create-1") {

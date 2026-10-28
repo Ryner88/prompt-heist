@@ -68,6 +68,18 @@ func _run() -> void:
 		if not await _wait_until(func() -> bool: return clients.all(func(client: Node) -> bool: return _phase(client) == "voting" and int(_snapshot(client).round) == round_number)):
 			await _finish("Voting should open for round %d" % round_number)
 			return
+		if round_number == 1:
+			var ability_client: Node = null
+			for client in clients:
+				if bool(_private(client).get("ability_available", false)):
+					ability_client = client
+					break
+			_check(ability_client != null, "At least one first-round specialist ability should be available")
+			if ability_client != null:
+				var target := "spoof" if _private(ability_client).role == "Hacker" else ""
+				_check(ability_client.use_ability(round_number, target), "A Godot client should send its specialist action")
+				_check(await _wait_until(func() -> bool: return bool(_private(ability_client).get("ability_used", false)) and not ability_client.has_pending_request()), "The owner should receive the confirmed ability result")
+				_check(not str(_private(ability_client).ability_details).is_empty(), "The owner should receive private ability feedback")
 		for client in clients:
 			_check(client.cast_vote(round_number, PLANS[round_number - 1]), "Each client should vote")
 			await _wait_until(func() -> bool: return not client.has_pending_request())
@@ -155,5 +167,5 @@ func _finish(failure: String) -> void:
 	for _index in 3:
 		await process_frame
 	if failures.is_empty():
-		print("Godot/Node heist integration passed: start, private roles, readiness, three voting rounds, identical recap, play again")
+		print("Godot/Node heist integration passed: start, private roles, specialist ability, readiness, three voting rounds, identical recap, play again")
 	quit(1 if not failures.is_empty() else 0)
