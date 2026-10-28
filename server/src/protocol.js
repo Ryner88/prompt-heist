@@ -25,7 +25,11 @@ export function decodeClientMessage(data, isBinary = false) {
   }
   const requestId = typeof message.request_id === "string" ? message.request_id : null;
   if (message.version !== PROTOCOL_VERSION) {
-    return failure("unsupported_version", requestId);
+    const rejected = failure("unsupported_version", requestId);
+    // An older client must be able to read the upgrade error before it has
+    // learned the new envelope version.
+    if (message.version === 1) rejected.response.version = 1;
+    return rejected;
   }
   if (typeof message.type !== "string" || !validators[message.type]) {
     return failure("unsupported_command", requestId);

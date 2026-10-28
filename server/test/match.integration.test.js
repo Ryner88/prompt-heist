@@ -74,7 +74,7 @@ test("four browsers play a complete social match with private roles and a correc
   assert.ok(privates.slice(1).every((message) => message.payload.role !== "Informant"));
   for (const message of privates) {
     assert.deepEqual(Object.keys(message.payload).sort(),
-      ["ability", "accusation", "revision", "role", "room_code", "sabotage_available", "seat", "vote"]);
+      ["ability", "ability_available", "ability_details", "ability_used", "accusation", "revision", "role", "room_code", "sabotage_available", "seat", "vote"]);
   }
 
   const publicViews = await Promise.all(clients.map((client) => latest(client, "match_snapshot", phaseIs("role_reveal"))));
@@ -91,6 +91,13 @@ test("four browsers play a complete social match with private roles and a correc
   await everyoneReady(clients, "briefing", 1);
   await everyoneReady(clients, "planning", 1);
   await latest(dee, "match_snapshot", phaseIs("voting"));
+
+  assert.equal((await send(cy, "use_ability", { round: 1 })).type, "command_result");
+  const clue = await latest(cy, "match_private", (payload) => payload.ability_used === true);
+  assert.match(clue.payload.ability_details, /Blackout loses 8 score/);
+  assert.equal((await send(cy, "use_ability", { round: 1 })).payload.code, "ability_unavailable");
+  assert.equal(ben.messages.some((message) => JSON.stringify(message).includes("Backup lighting")), false,
+    "The Inside Agent's clue stays private");
 
   // The Informant sabotages while voting; only Ada learns it is armed.
   const sabotage = await send(ada, "cast_vote", { round: 1, plan_id: "ghost", sabotage: true });
@@ -192,8 +199,10 @@ test("match commands are schema-checked, stale-safe, and idempotent per request 
     assert.equal((await send(ada, "ready", payload)).payload.code, "invalid_message");
   }
   assert.equal((await send(ada, "cast_vote", { round: 1, plan_id: "Ghost" })).payload.code, "invalid_message");
+  assert.equal((await send(ada, "use_ability", { round: 1, target_plan_id: "Ghost" })).payload.code, "invalid_message");
   assert.equal((await send(ada, "accuse", { suspect_seat: 4 })).payload.code, "invalid_message");
   assert.equal((await send(ada, "ready", { phase: "briefing", round: 1 })).payload.code, "stale_action");
+  assert.equal((await send(ada, "use_ability", { round: 1 })).payload.code, "stale_action");
 
   // Replaying the same request ID returns the cached result without acting twice.
   ada.send(command("ready", "same-ready", { phase: "role_reveal", round: 1 }));
@@ -247,6 +256,36 @@ test("a reserved seat recovers its private role and the current match on resume"
   await latest(cy, "match_snapshot", (payload) => payload.seats[1].connected === true);
   await everyoneReady([ada, resumed, cy], "briefing", 1);
   await latest(resumed, "match_snapshot", phaseIs("planning"));
+});
+
+test("a reconnect restores the spent specialist ability and private clue", async (t) => {
+  const { clients, roomCode, server } = await gameRoom(t, 3);
+  await send(clients[0], "start_match");
+  await everyoneReady(clients, "role_reveal", 1);
+  await everyoneReady(clients, "briefing", 1);
+  await everyoneReady(clients, "planning", 1);
+  const voting = await latest(clients[0], "match_snapshot", phaseIs("voting"));
+  const privateStates = await Promise.all(clients.map((client) => latest(client, "match_private", (payload) => payload.revision >= voting.payload.revision)));
+  const actorIndex = privateStates.findIndex((message) => message.payload.ability_available);
+  assert.ok(actorIndex >= 0);
+  const actor = clients[actorIndex];
+  const role = privateStates[actorIndex].payload.role;
+  const payload = { round: 1, ...(role === "Hacker" ? { target_plan_id: "spoof" } : {}) };
+  assert.equal((await send(actor, "use_ability", payload)).type, "command_result");
+  const spent = await latest(actor, "match_private", (state) => state.ability_used);
+  assert.ok(spent.payload.ability_details.length > 0);
+  await actor.close();
+  await latest(clients[(actorIndex + 1) % 3], "match_snapshot", (state) => !state.seats[actorIndex].connected);
+
+  const resumed = await connectClient(server.websocketUrl);
+  t.after(() => resumed.close());
+  assert.equal((await send(resumed, "resume_room", { room_code: roomCode, reconnect_token: actor.token,
+    sync: true, game: true })).type, "command_result");
+  const restored = await latest(resumed, "match_private", (state) => state.ability_used);
+  assert.equal(restored.payload.role, role);
+  assert.equal(restored.payload.ability_details, spent.payload.ability_details);
+  assert.equal(restored.payload.ability_available, false);
+  assert.equal((await send(resumed, "use_ability", payload)).payload.code, "ability_unavailable");
 });
 
 test("a permanent departure abandons the heist without revealing roles and reopens the room", async (t) => {

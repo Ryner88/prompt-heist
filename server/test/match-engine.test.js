@@ -5,6 +5,7 @@ import {
   HeistMatch,
   MAX_TIME,
   ROUND_PLANS,
+  ROLE_TEMPLATES,
   STARTING_RESOURCES,
   STARTING_SUSPICION,
 } from "../src/match-engine.js";
@@ -118,8 +119,8 @@ test("scoring and meter changes reproduce the GDScript formula", () => {
   starved.timeRemaining = 1;
   starved.suspicion = 6;
   const blackout = voteAll(starved, "blackout");
-  // 78 + 3 - 24 - (3-1)*15 - 0 = 27 (time 1 ≥ cost 1, no time penalty)
-  assert.equal(blackout.score, 27);
+  // The hidden blackout complication subtracts 8 before score clamping.
+  assert.equal(blackout.score, 19);
   assert.equal(blackout.success, false);
   assert.equal(starved.missionFailed, true);
   assert.equal(starved.failureReason, "The crew ran out of time.", "Time is checked before suspicion and resources");
@@ -302,4 +303,85 @@ test("after the recap, the match closes once every remaining seat asks to return
   assert.equal(match.ready("p1", "finished", 3).code, "stale_action");
   assert.equal(match.closeIfReady(remaining), false);
   assert.equal(match.abandon("Player 2"), false, "A closed match cannot be abandoned");
+});
+
+function abilityMatch(role) {
+  const roleSeat = ROLE_TEMPLATES.findIndex((entry) => entry.role === role);
+  const informantSeat = roleSeat === 5 ? 0 : 5;
+  let calls = 0;
+  const random = (n) => {
+    calls += 1;
+    if (calls <= 5) return n - 1;
+    if (calls === 6) return informantSeat;
+    return 0;
+  };
+  const match = votingMatch(6, { random });
+  assert.equal(match.privateView(`p${roleSeat}`).role, role);
+  return { match, playerId: `p${roleSeat}` };
+}
+
+test("information abilities are private, one-use, and reveal current-round facts", () => {
+  const mastermind = abilityMatch("Mastermind");
+  assert.equal(mastermind.match.useAbility(mastermind.playerId, 1).ok, true);
+  assert.match(mastermind.match.privateView(mastermind.playerId).ability_details, /base success 68\/100/);
+  assert.equal(mastermind.match.privateView("p1").ability_details, "");
+  assert.doesNotMatch(JSON.stringify(mastermind.match.publicView()), /base_success|Mastermind/);
+  assert.equal(mastermind.match.useAbility(mastermind.playerId, 1).code, "ability_unavailable");
+  assert.equal(mastermind.match.useAbility("p5", 1).code, "ability_unavailable", "Informant cannot use a crew ability");
+
+  const agent = abilityMatch("Inside Agent");
+  assert.equal(agent.match.useAbility(agent.playerId, 1).ok, true);
+  assert.match(agent.match.privateView(agent.playerId).ability_details, /Blackout loses 8 score/);
+  assert.doesNotMatch(JSON.stringify(agent.match.publicView()), /Backup lighting/);
+  const result = voteAll(agent.match, "blackout");
+  assert.equal(result.score, 87, "The revealed complication actually changes resolution");
+  assert.match(result.consequence, /Backup lighting/);
+});
+
+test("Hacker, Fixer, Security Specialist, and Driver change the authoritative outcome", () => {
+  const hacker = abilityMatch("Hacker");
+  assert.equal(hacker.match.useAbility(hacker.playerId, 1, "ghost").code, "invalid_ability_target");
+  assert.equal(hacker.match.useAbility(hacker.playerId, 1, "spoof").ok, true);
+  assert.equal(hacker.match.publicView().plans.find((plan) => plan.id === "spoof").risk, 1);
+  voteAll(hacker.match, "spoof");
+  assert.equal(hacker.match.suspicion, 0);
+  assert.equal(hacker.match.publicView().plans.find((plan) => plan.id === "spoof").risk, 2,
+    "The risk reduction ends after this round");
+
+  const fixer = abilityMatch("Fixer");
+  assert.equal(fixer.match.useAbility(fixer.playerId, 1).ok, true);
+  assert.equal(fixer.match.resources, 8);
+  assert.equal(voteAll(fixer.match, "ghost").score, 88);
+  assert.equal(fixer.match.resources, 7);
+
+  const specialist = abilityMatch("Security Specialist");
+  assert.equal(specialist.match.useAbility(specialist.playerId, 1).ok, true);
+  for (let seat = 0; seat < 6; seat += 1) {
+    assert.equal(specialist.match.castVote(`p${seat}`, 1, "blackout", { sabotage: seat === 5 }).ok, true);
+  }
+  assert.equal(specialist.match.lastResult.sabotage_applied, true);
+  assert.equal(specialist.match.suspicion, 3, "Protection blocks one point after sabotage is added");
+  assert.match(specialist.match.lastResult.consequence, /blocked one suspicion/);
+
+  const driver = abilityMatch("Driver");
+  assert.equal(driver.match.useAbility(driver.playerId, 1).code, "ability_unavailable");
+  playRounds(driver.match, ["ghost", "social"]);
+  driver.match.resources = 4;
+  driver.match.suspicion = 4;
+  readyAll(driver.match, "planning");
+  assert.equal(driver.match.useAbility(driver.playerId, 3).ok, true);
+  assert.equal(voteAll(driver.match, "motorcade").success, false);
+  assert.equal(driver.match.resources, 1, "Driver prevents the extra resource loss on failure");
+  assert.equal(driver.match.suspicion, 7, "Driver prevents the extra suspicion on failure");
+  assert.match(driver.match.lastResult.consequence, /Driver prevents/);
+});
+
+test("hidden complications vary by match and stay out of public state", () => {
+  let calls = 0;
+  const random = (n) => (++calls <= 5 ? 0 : 1 % n);
+  const alternate = votingMatch(3, { random });
+  assert.doesNotMatch(JSON.stringify(alternate.publicView()), /unexpected security sweep/i);
+  assert.equal(voteAll(alternate, "ghost").score, 77);
+  const baseline = votingMatch(3);
+  assert.equal(voteAll(baseline, "ghost").score, 85);
 });

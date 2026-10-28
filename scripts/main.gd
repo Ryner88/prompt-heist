@@ -30,6 +30,7 @@ var online_create_button: Button
 var online_join_button: Button
 var online_validation_label: Label
 var online_sabotage_armed := false
+var online_screen_key := ""
 
 func _ready() -> void:
 	rng.randomize()
@@ -96,13 +97,14 @@ func _show_mode_selection() -> void:
 	_clear_content()
 	subtitle_label.text = "CHOOSE HOW TO PLAY"
 	var intro := Label.new()
-	intro.text = "Join the synchronized waiting room online, or keep playing the complete local pass-and-play prototype."
+	intro.text = "Plan a three-round heist with friends. Work together, watch the meters, and uncover the Informant when four or more players join."
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.add_theme_font_size_override("font_size", 21)
 	content.add_child(intro)
+	_online_text("CONTROLS • Use mouse or touch to choose plans and buttons. Online: create a room, share its six-character code, or join with a friend's code.", Color("8fa3bf"), 16)
 
 	var online_button := Button.new()
-	online_button.text = "Online multiplayer room"
+	online_button.text = "Create or join an online room"
 	online_button.custom_minimum_size = Vector2(0, 56)
 	online_button.pressed.connect(_show_online_multiplayer)
 	content.add_child(online_button)
@@ -112,6 +114,30 @@ func _show_mode_selection() -> void:
 	local_button.custom_minimum_size = Vector2(0, 56)
 	local_button.pressed.connect(_show_lobby)
 	content.add_child(local_button)
+
+	var guide_button := Button.new()
+	guide_button.text = "How to play"
+	guide_button.custom_minimum_size = Vector2(0, 48)
+	guide_button.pressed.connect(_show_how_to_play)
+	content.add_child(guide_button)
+
+func _show_how_to_play() -> void:
+	_clear_content()
+	subtitle_label.text = "HOW TO PLAY"
+	_online_heading("The heist", Color("f4c95d"), 28)
+	_online_text("Online rooms take 3–4 players; local pass-and-play takes 3–6. Three players cooperate. With four or more, one hidden Informant tries to make the crew fail or escape accusation.")
+	_online_heading("Each round", Color("f4c95d"), 25)
+	_online_text("Review three plans and their time, resource, and risk costs. When everyone is ready, each player votes privately. Most votes wins; ties choose the lowest-risk plan, then card order. Costs always apply. A score of 70 or more succeeds. Hidden complications can lower a plan's score.")
+	_online_heading("How to win", Color("f4c95d"), 25)
+	_online_text("The crew needs at least two successful plans across three rounds. Running out of time or resources, or reaching seven suspicion, ends the mission immediately. In a social match, a successful mission leads to a private accusation. The crew wins only if one suspect leads and that suspect is the Informant; otherwise the Informant wins.")
+	_online_heading("Secret roles", Color("f4c95d"), 25)
+	_online_text("Specialists may use their ability once, before casting a private vote. You may skip it. Its effect is confirmed on your screen. The Informant can instead add two suspicion once by checking sabotage when voting; it is revealed after resolution.")
+	for role in GameState.ROLE_TEMPLATES:
+		_online_text("%s • %s" % [role.role, role.ability], Color("e6ebf2"), 16)
+	var back := Button.new()
+	back.text = "Back to play modes"
+	back.pressed.connect(_show_mode_selection)
+	content.add_child(back)
 
 func _show_online_multiplayer() -> void:
 	_initialize_multiplayer()
@@ -142,7 +168,7 @@ func _on_online_state_changed(_state: int) -> void:
 	_render_multiplayer_state()
 
 func _on_online_request_failed(_code: String, _message: String) -> void:
-	if multiplayer_flow.state == MultiplayerFlowScript.State.LOBBY:
+	if multiplayer_flow.state == MultiplayerFlowScript.State.LOBBY or multiplayer_flow.state == MultiplayerFlowScript.State.MATCH:
 		_render_multiplayer_state()
 
 func _configured_room_endpoint() -> String:
@@ -154,6 +180,11 @@ func _configured_room_endpoint() -> String:
 func _render_multiplayer_state() -> void:
 	if multiplayer_flow == null:
 		return
+	var screen_key := str(multiplayer_flow.state)
+	if multiplayer_flow.state == MultiplayerFlowScript.State.MATCH and not multiplayer_flow.match_snapshot.is_empty():
+		screen_key += ":%s:%d" % [multiplayer_flow.match_snapshot.phase, multiplayer_flow.match_snapshot.round]
+	var previous_scroll := content_scroll.scroll_vertical if screen_key == online_screen_key else 0
+	online_screen_key = screen_key
 	_clear_content()
 	status_label.text = multiplayer_flow.feedback
 	match multiplayer_flow.state:
@@ -169,6 +200,8 @@ func _render_multiplayer_state() -> void:
 			_show_online_match()
 		_:
 			_show_online_disconnected()
+	if previous_scroll > 0:
+		content_scroll.set_deferred("scroll_vertical", previous_scroll)
 
 func _show_online_connecting() -> void:
 	subtitle_label.text = "ONLINE • CONNECTING"
@@ -479,6 +512,7 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 		_online_text("Your vote is locked in. Votes stay hidden until everyone has chosen.", Color("62d6a7"))
 	else:
 		_online_text("Choose one plan. Votes stay hidden until everyone has chosen.")
+	_add_online_ability_controls(snapshot)
 	if bool(multiplayer_flow.match_private.get("sabotage_available", false)):
 		var sabotage := CheckBox.new()
 		sabotage.text = "Sabotage this round (once per match; adds 2 suspicion)"
@@ -487,6 +521,38 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 		sabotage.toggled.connect(func(pressed: bool) -> void: online_sabotage_armed = pressed)
 		content.add_child(sabotage)
 	_add_online_plan_cards(snapshot, not multiplayer_flow.has_voted())
+
+func _add_online_ability_controls(snapshot: Dictionary) -> void:
+	var private_state: Dictionary = multiplayer_flow.match_private
+	if private_state.is_empty() or multiplayer_flow.is_informant():
+		return
+	if not str(private_state.get("ability_details", "")).is_empty():
+		_online_text("YOUR ABILITY: %s" % private_state.ability_details, Color("62d6a7"), 16)
+	if not bool(private_state.get("ability_available", false)):
+		return
+	_online_text("ROLE ABILITY • %s" % private_state.ability, Color("f4c95d"), 16)
+	if private_state.role == "Hacker":
+		for plan in snapshot.plans:
+			if not GameState.DIGITAL_PLAN_IDS.has(plan.id):
+				continue
+			var target_id: String = plan.id
+			var target_button := Button.new()
+			target_button.text = "Hack %s" % plan.title
+			target_button.pressed.connect(func() -> void:
+				target_button.disabled = true
+				if not multiplayer_flow.use_ability(target_id):
+					target_button.disabled = false
+			)
+			content.add_child(target_button)
+	else:
+		var ability_button := Button.new()
+		ability_button.text = "Use %s ability" % private_state.role
+		ability_button.pressed.connect(func() -> void:
+			ability_button.disabled = true
+			if not multiplayer_flow.use_ability():
+				ability_button.disabled = false
+		)
+		content.add_child(ability_button)
 
 func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
 	var cards := GridContainer.new()
@@ -823,7 +889,7 @@ func _make_plan_card(plan: Dictionary, voting: bool) -> VBoxContainer:
 	description.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.add_child(description)
 	var costs := Label.new()
-	costs.text = "Time −%d  •  Resources −%d  •  Risk %d" % [plan.time_cost, plan.resource_cost, plan.risk]
+	costs.text = "Time −%d  •  Resources −%d  •  Risk %d" % [plan.time_cost, plan.resource_cost, game.effective_risk(plan)]
 	costs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	costs.add_theme_color_override("font_color", Color("8fa3bf"))
 	card.add_child(costs)
@@ -843,12 +909,14 @@ func _show_voting() -> void:
 	_clear_content()
 	subtitle_label.text = "ROUND %d • SECRET BALLOT" % game.current_round
 	var voter: Dictionary = game.players[vote_index]
+	_add_meters()
 	var instruction := Label.new()
 	instruction.text = "Pass the screen to %s. Choose one plan; votes stay hidden until everyone finishes." % voter.name
 	instruction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	instruction.add_theme_font_size_override("font_size", 21)
 	content.add_child(instruction)
+	_add_local_ability_controls(voter)
 	if game.is_informant(voter.id) and not game.informant_sabotage_used:
 		var sabotage := Button.new()
 		sabotage.text = "Sabotage this round"
@@ -862,6 +930,36 @@ func _show_voting() -> void:
 	content.add_child(cards)
 	for plan in game.get_current_plans():
 		cards.add_child(_make_plan_card(plan, true))
+
+func _add_local_ability_controls(voter: Dictionary) -> void:
+	if game.is_informant(voter.id):
+		return
+	if int(voter.get("ability_round", -1)) == game.current_round and not str(voter.get("ability_details", "")).is_empty():
+		_online_text("YOUR ABILITY: %s" % voter.ability_details, Color("62d6a7"), 16)
+	if not game.ability_available(voter.id):
+		return
+	_online_text("ROLE ABILITY • %s" % voter.ability, Color("f4c95d"), 16)
+	if voter.role == "Hacker":
+		for plan in game.get_current_plans():
+			if not GameState.DIGITAL_PLAN_IDS.has(plan.id):
+				continue
+			var target_id: String = plan.id
+			var target_button := Button.new()
+			target_button.text = "Hack %s" % plan.title
+			target_button.pressed.connect(_use_local_ability.bind(voter.id, target_id))
+			content.add_child(target_button)
+	else:
+		var ability_button := Button.new()
+		ability_button.text = "Use %s ability" % voter.role
+		ability_button.pressed.connect(_use_local_ability.bind(voter.id, ""))
+		content.add_child(ability_button)
+
+func _use_local_ability(player_id: int, target_plan_id: String) -> void:
+	var result := game.use_ability(player_id, target_plan_id)
+	if not result.ok:
+		status_label.text = result.error
+		return
+	_show_voting()
 
 func _arm_sabotage(player_id: int, button: Button) -> void:
 	var result := game.arm_informant_sabotage(player_id)

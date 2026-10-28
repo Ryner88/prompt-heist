@@ -10,7 +10,7 @@ test("health endpoint reports readiness", async (t) => {
   t.after(() => server.service.close());
   const response = await fetch(`${server.httpUrl}/healthz`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "ready", protocol_version: 1 });
+  assert.deepEqual(await response.json(), { status: "ready", protocol_version: 2 });
   const missing = await fetch(`${server.httpUrl}/missing`);
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: "not_found" });

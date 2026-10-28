@@ -134,7 +134,7 @@ func _test_recovery_and_acknowledged_leave() -> void:
 	_check(fixture.flow.state == FlowScript.State.LEAVING and fixture.client.has_recovery(), "Leave must wait for server acknowledgement before clearing the token")
 	var leave_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
 	_check(leave_request.type == "leave_room", "Explicit leave must send the authoritative leave command")
-	fixture.client.ingest_server_text(JSON.stringify({"version": 1, "type": "command_result", "request_id": leave_request.request_id, "payload": {"command": "leave_room", "room_code": "ABC234"}}), fixture.client.connection_generation)
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "command_result", "request_id": leave_request.request_id, "payload": {"command": "leave_room", "room_code": "ABC234"}}), fixture.client.connection_generation)
 	_check(fixture.flow.state == FlowScript.State.DISCONNECTED and not fixture.client.has_recovery(), "Acknowledged leave must clear recovery and return to disconnected state")
 
 func _test_match_progression_and_abandonment() -> void:
@@ -262,7 +262,7 @@ func _active_start_button(main: Control) -> Button:
 	return null
 
 func _match_result(request_id: String, command: String) -> String:
-	return JSON.stringify({"version": 1, "type": "command_result", "request_id": request_id, "payload": {"command": command, "room_code": "ABC234"}})
+	return JSON.stringify({"version": 2, "type": "command_result", "request_id": request_id, "payload": {"command": command, "room_code": "ABC234"}})
 
 func _flow_fixture() -> Dictionary:
 	var transport := FakeTransport.new()
@@ -279,13 +279,13 @@ func _flow_fixture() -> Dictionary:
 
 func _command_result(request_id: String, command: String = "create_room") -> String:
 	return JSON.stringify({
-		"version": 1, "type": "command_result", "request_id": request_id,
+		"version": 2, "type": "command_result", "request_id": request_id,
 		"payload": {"command": command, "room_code": "ABC234", "player_id": "player-a", "session_id": "private-session", "reconnect_token": "B".repeat(43) if command == "resume_room" else "A".repeat(43)},
 	})
 
 func _snapshot(room_code: String, names: Array, revision: int = -1) -> String:
 	return JSON.stringify({
-		"version": 1, "type": "room_snapshot", "request_id": null,
+		"version": 2, "type": "room_snapshot", "request_id": null,
 		"payload": {"room_code": room_code, "player_names": names, "player_count": names.size(), "max_players": 4, "revision": names.size() if revision < 0 else revision},
 	})
 

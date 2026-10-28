@@ -1,5 +1,7 @@
 # Milestone 4 browser acceptance, 2026-10-28
 
+This records the earlier milestone build. The later specialist ability implementation and its browser evidence are documented in [the specialist ability check](specialist-abilities-browser-2026-10-28.md).
+
 ## Environment and scope
 
 - Baseline: merged milestone 4 branch at `2fb0860` (PR #13), with its CI Web artifact from run `40772842456`.

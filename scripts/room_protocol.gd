@@ -1,7 +1,7 @@
 class_name RoomProtocol
 extends RefCounted
 
-const VERSION := 1
+const VERSION := 2
 const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const ROOM_CODE_LENGTH := 6
 const MIN_NAME_LENGTH := 2
@@ -29,6 +29,8 @@ const ERROR_MESSAGES := {
 	"already_acted": "You have already made that choice.",
 	"invalid_plan": "That plan is not available this round.",
 	"sabotage_unavailable": "Sabotage is not available.",
+	"ability_unavailable": "Your role ability is not available now or has already been used.",
+	"invalid_ability_target": "Choose an eligible digital plan for the Hacker ability.",
 	"not_eligible": "Only the crew can vote in the accusation.",
 	"invalid_suspect": "Choose another player to accuse.",
 }
@@ -40,7 +42,7 @@ const READY_PHASES := ["role_reveal", "briefing", "planning", "resolution", "fin
 ## Terminal notices that return players to the waiting room.
 const ROOM_RETURN_PHASES := ["abandoned", "closed"]
 const MATCH_SNAPSHOT_KEYS := ["room_code", "revision", "phase", "mode", "round", "total_rounds", "meters", "mission", "plans", "seats", "progress", "last_result", "outcome", "notice"]
-const MATCH_PRIVATE_KEYS := ["room_code", "revision", "seat", "role", "ability", "sabotage_available", "vote", "accusation"]
+const MATCH_PRIVATE_KEYS := ["room_code", "revision", "seat", "role", "ability", "ability_available", "ability_used", "ability_details", "sabotage_available", "vote", "accusation"]
 const METER_KEYS := ["time", "max_time", "suspicion", "max_suspicion", "failure_suspicion", "resources", "max_resources"]
 const PLAN_KEYS := ["id", "title", "description", "time_cost", "resource_cost", "risk"]
 const SEAT_KEYS := ["seat", "name", "connected", "ready", "acted"]
@@ -221,7 +223,9 @@ static func validate_match_private(payload: Variant) -> bool:
 		return false
 	if not _is_count(payload.revision, 1, 1000000000) or not _is_count(payload.seat, 0, 3):
 		return false
-	if not _all_strings([payload.role, payload.ability]) or not payload.sabotage_available is bool:
+	if not _all_strings([payload.role, payload.ability, payload.ability_details]) or not payload.sabotage_available is bool:
+		return false
+	if not payload.ability_available is bool or not payload.ability_used is bool:
 		return false
 	if payload.vote != null and not payload.vote is String:
 		return false

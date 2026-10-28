@@ -102,6 +102,15 @@ export const clientMessageSchemas = {
       sabotage: { const: true },
     },
   }),
+  use_ability: envelope("use_ability", {
+    type: "object",
+    additionalProperties: false,
+    required: ["round"],
+    properties: {
+      round,
+      target_plan_id: { type: "string", minLength: 1, maxLength: 16, pattern: "^[a-z]+$" },
+    },
+  }),
   accuse: envelope("accuse", {
     type: "object",
     additionalProperties: false,
