@@ -19,6 +19,7 @@ const MAX_TIME := 12
 const MAX_SUSPICION := 10
 const MAX_RESOURCES := 8
 const DIGITAL_PLAN_IDS := ["spoof", "blackout", "drone"]
+# Templates supply a default description; each match draws the affected plan.
 const HIDDEN_COMPLICATIONS := [
 	{"plan_id": "blackout", "score_penalty": 8, "description": "Backup lighting makes the blackout harder to exploit."},
 	{"plan_id": "decoy", "score_penalty": 8, "description": "A second patrol ignores the decoy alarm."},
@@ -47,6 +48,7 @@ var informant_sabotage_pending := false
 var hacker_target := ""
 var driver_protection_pending := false
 var security_protection_pending := false
+var hidden_complications: Array[Dictionary] = []
 var mission_failed := false
 var failure_reason := ""
 var accusation_votes: Dictionary = {}
@@ -94,6 +96,7 @@ func reset_game() -> void:
 	hacker_target = ""
 	driver_protection_pending = false
 	security_protection_pending = false
+	hidden_complications.clear()
 	mission_failed = false
 	failure_reason = ""
 	accusation_votes.clear()
@@ -145,6 +148,20 @@ func start_match(rng: RandomNumberGenerator) -> Dictionary:
 		informant_player_id = players[informant_index].id
 		players[informant_index].role = "Informant"
 		players[informant_index].ability = "Secretly increase suspicion while appearing to help the crew."
+	for round_index in TOTAL_ROUNDS:
+		var template: Dictionary = HIDDEN_COMPLICATIONS[round_index]
+		var plans: Array = round_plans[round_index]
+		var base_index := 0
+		for plan_index in plans.size():
+			if plans[plan_index].id == template.plan_id:
+				base_index = plan_index
+				break
+		var chosen: Dictionary = plans[(base_index + rng.randi_range(0, plans.size() - 1)) % plans.size()]
+		hidden_complications.append({
+			"plan_id": chosen.id,
+			"score_penalty": template.score_penalty,
+			"description": template.description if chosen.id == template.plan_id else "An unexpected security sweep threatens %s." % chosen.title,
+		})
 
 	phase = Phase.ROLE_REVEAL
 	return {"ok": true}
@@ -191,7 +208,7 @@ func use_ability(player_id: int, target_plan_id: String = "") -> Dictionary:
 				scores.append("%s: base success %d/100" % [plan.title, plan.base_success])
 			details = " • ".join(scores)
 		"Inside Agent":
-			var complication: Dictionary = HIDDEN_COMPLICATIONS[current_round - 1]
+			var complication: Dictionary = hidden_complications[current_round - 1]
 			details = "%s %s loses %d score." % [complication.description, get_plan(complication.plan_id).title, complication.score_penalty]
 		"Hacker":
 			if not DIGITAL_PLAN_IDS.has(target_plan_id) or get_plan(target_plan_id).is_empty():
@@ -268,7 +285,7 @@ func resolve_vote() -> Dictionary:
 
 	var selected_plan := get_plan(selected_id)
 	var score: int = selected_plan.base_success + resources * 3 - suspicion * 4
-	var complication: Dictionary = HIDDEN_COMPLICATIONS[current_round - 1]
+	var complication: Dictionary = hidden_complications[current_round - 1]
 	var complication_applied: bool = selected_plan.id == complication.plan_id
 	if complication_applied:
 		score -= int(complication.score_penalty)

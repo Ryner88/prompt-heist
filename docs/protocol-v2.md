@@ -19,7 +19,7 @@ Every `match_private` payload now adds `ability_available` and `ability_used` bo
 - Mastermind privately sees the current plans' base success scores.
 - Hacker reduces one eligible plan's risk by one for the current round; the reduced risk also participates in tie resolution.
 - Driver, in round 3, prevents the extra suspicion and resource loss if the selected escape plan fails. Normal plan costs and risk still apply.
-- Inside Agent privately learns the current round's hidden complication. The affected plan loses eight score if selected.
+- Inside Agent privately learns the current round's hidden complication. Each match randomly assigns one affected plan per round; that plan loses eight score if selected.
 - Security Specialist blocks one point of suspicion gained in the current round, including sabotage suspicion.
 - Fixer immediately restores one spent resource before resolution, up to the maximum of eight.
 

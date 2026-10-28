@@ -201,10 +201,12 @@ func _test_private_information_abilities() -> void:
 	_check(not mastermind.use_ability(1).ok, "Mastermind ability must be single use")
 	var agent = _voting_game(3)
 	agent.players[0].role = "Inside Agent"
+	var hidden_plan: String = agent.hidden_complications[0].plan_id
 	var clue: Dictionary = agent.use_ability(1)
-	_check(clue.ok and clue.details.contains("Blackout loses 8 score"), "Inside Agent should reveal this round's hidden complication")
-	var hidden_result: Dictionary = _resolve_unanimous(agent, "blackout")
-	_check(hidden_result.score == 87 and hidden_result.consequence.contains("Backup lighting"), "The hidden complication must affect resolution")
+	_check(clue.ok and clue.details.contains(agent.get_plan(hidden_plan).title) and clue.details.contains("loses 8 score"), "Inside Agent should reveal this round's hidden complication")
+	var expected_score: int = agent.get_plan(hidden_plan).base_success + 7 * 3 - 1 * 4 - 8
+	var hidden_result: Dictionary = _resolve_unanimous(agent, hidden_plan)
+	_check(hidden_result.score == expected_score and hidden_result.consequence.contains(agent.hidden_complications[0].description), "The hidden complication must affect resolution")
 	var hacker = _voting_game(3)
 	hacker.players[0].role = "Hacker"
 	_check(not hacker.use_ability(1, "ghost").ok, "Hacker must target a digital plan")
@@ -228,10 +230,10 @@ func _test_protective_and_resource_abilities() -> void:
 	driver.current_round = 3
 	driver.resources = 4
 	driver.suspicion = 4
-	driver.time_remaining = 5
+	driver.time_remaining = 1
 	_check(driver.use_ability(1).ok, "Driver should protect the final escape")
 	var result: Dictionary = _resolve_unanimous(driver, "motorcade")
-	_check(not result.success and driver.resources == 1 and result.consequence.contains("Driver prevents"), "Driver should prevent the failure's extra resource and suspicion")
+	_check(not result.success and driver.resources == 1 and driver.suspicion == 7 and result.consequence.contains("Driver prevents"), "Driver should prevent the failure's extra resource and suspicion")
 
 func _started_game(player_count: int):
 	var game = GameState.new()

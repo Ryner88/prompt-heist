@@ -53,6 +53,8 @@ export const ROLE_TEMPLATES = Object.freeze([
 ]);
 
 export const DIGITAL_PLAN_IDS = Object.freeze(["spoof", "blackout", "drone"]);
+// Each round's template supplies the penalty and a default description. The
+// affected plan is drawn separately for every match and kept on the server.
 export const HIDDEN_COMPLICATIONS = Object.freeze([
   { plan_id: "blackout", score_penalty: 8, description: "Backup lighting makes the blackout harder to exploit." },
   { plan_id: "decoy", score_penalty: 8, description: "A second patrol ignores the decoy alarm." },
@@ -83,6 +85,7 @@ export class HeistMatch {
   #driverProtectionPending = false;
   #securityProtectionPending = false;
   #hackerTarget = null;
+  #complications;
 
   constructor(players, { random = randomInt } = {}) {
     if (!Array.isArray(players) || players.length < MIN_MATCH_PLAYERS || players.length > ROLE_TEMPLATES.length) {
@@ -101,6 +104,16 @@ export class HeistMatch {
       this.#informantSeat = random(players.length);
       Object.assign(this.#seats[this.#informantSeat], INFORMANT_ROLE);
     }
+    this.#complications = HIDDEN_COMPLICATIONS.map((template, roundIndex) => {
+      const plans = ROUND_PLANS[roundIndex];
+      const baseIndex = plans.findIndex((plan) => plan.id === template.plan_id);
+      const chosen = plans[(baseIndex + random(plans.length)) % plans.length];
+      return {
+        plan_id: chosen.id,
+        score_penalty: template.score_penalty,
+        description: chosen.id === template.plan_id ? template.description : `An unexpected security sweep threatens ${chosen.title}.`,
+      };
+    });
     this.phase = "role_reveal";
     this.round = 1;
     this.timeRemaining = MAX_TIME;
@@ -214,7 +227,7 @@ export class HeistMatch {
     if (this.phase !== "voting" || round !== this.round || this.#votes.has(seat.seat)) return failure("stale_action");
     if (seat.seat === this.#informantSeat || this.#abilityUsed.has(seat.seat)) return failure("ability_unavailable");
     if (seat.role !== "Hacker" && targetPlanId !== null) return failure("invalid_ability_target");
-    const complication = HIDDEN_COMPLICATIONS[this.round - 1];
+    const complication = this.#complications[this.round - 1];
     let details = "";
     switch (seat.role) {
       case "Mastermind":
@@ -373,7 +386,7 @@ export class HeistMatch {
     }
 
     let score = selected.base_success + this.resources * 3 - this.suspicion * 4;
-    const complication = HIDDEN_COMPLICATIONS[this.round - 1];
+    const complication = this.#complications[this.round - 1];
     const complicationApplied = selected.id === complication.plan_id;
     if (complicationApplied) score -= complication.score_penalty;
     if (this.resources < selected.resource_cost) score -= (selected.resource_cost - this.resources) * 15;

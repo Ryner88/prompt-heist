@@ -309,7 +309,12 @@ function abilityMatch(role) {
   const roleSeat = ROLE_TEMPLATES.findIndex((entry) => entry.role === role);
   const informantSeat = roleSeat === 5 ? 0 : 5;
   let calls = 0;
-  const random = (n) => (++calls <= 5 ? n - 1 : informantSeat);
+  const random = (n) => {
+    calls += 1;
+    if (calls <= 5) return n - 1;
+    if (calls === 6) return informantSeat;
+    return 0;
+  };
   const match = votingMatch(6, { random });
   assert.equal(match.privateView(`p${roleSeat}`).role, role);
   return { match, playerId: `p${roleSeat}` };
@@ -367,5 +372,16 @@ test("Hacker, Fixer, Security Specialist, and Driver change the authoritative ou
   assert.equal(driver.match.useAbility(driver.playerId, 3).ok, true);
   assert.equal(voteAll(driver.match, "motorcade").success, false);
   assert.equal(driver.match.resources, 1, "Driver prevents the extra resource loss on failure");
+  assert.equal(driver.match.suspicion, 7, "Driver prevents the extra suspicion on failure");
   assert.match(driver.match.lastResult.consequence, /Driver prevents/);
+});
+
+test("hidden complications vary by match and stay out of public state", () => {
+  let calls = 0;
+  const random = (n) => (++calls <= 5 ? 0 : 1 % n);
+  const alternate = votingMatch(3, { random });
+  assert.doesNotMatch(JSON.stringify(alternate.publicView()), /unexpected security sweep/i);
+  assert.equal(voteAll(alternate, "ghost").score, 77);
+  const baseline = votingMatch(3);
+  assert.equal(voteAll(baseline, "ghost").score, 85);
 });
