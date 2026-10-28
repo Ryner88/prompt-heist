@@ -7,6 +7,7 @@ import {
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
 } from "./constants.js";
+import { HeistMatch, MIN_MATCH_PLAYERS } from "./match-engine.js";
 
 const RECONNECT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -20,17 +21,20 @@ export class RoomRegistry {
   #tokenGenerator;
   #clock;
   #graceMs;
+  #matchRandom;
 
   constructor({ codeGenerator = generateRoomCode, idGenerator = randomUUID,
-    tokenGenerator = generateReconnectToken, clock = () => performance.now(), graceMs = 30_000 } = {}) {
+    tokenGenerator = generateReconnectToken, clock = () => performance.now(), graceMs = 30_000,
+    matchRandom = undefined } = {}) {
     this.#codeGenerator = codeGenerator;
     this.#idGenerator = idGenerator;
     this.#tokenGenerator = tokenGenerator;
     this.#clock = clock;
     this.#graceMs = graceMs;
+    this.#matchRandom = matchRandom;
   }
 
-  createRoom(displayName, connectionId, { reconnect = false, sync = false } = {}) {
+  createRoom(displayName, connectionId, { reconnect = false, sync = false, game = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -49,15 +53,15 @@ export class RoomRegistry {
     }
     if (!roomCode) return failure("room_code_unavailable");
 
-    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect, sync);
+    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect, sync, game);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
-    this.#rooms.set(roomCode, { roomCode, players: [player], revision: 1 });
+    this.#rooms.set(roomCode, { roomCode, players: [player], revision: 1, match: null, matchRevision: 0 });
     this.#sessions.set(connectionId, player);
     return success(roomCode, player, this.publicSnapshot(roomCode), token);
   }
 
-  joinRoom(roomCode, displayName, connectionId, { reconnect = false, sync = false } = {}) {
+  joinRoom(roomCode, displayName, connectionId, { reconnect = false, sync = false, game = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -65,6 +69,7 @@ export class RoomRegistry {
     const code = String(roomCode).trim().toUpperCase();
     const room = this.#rooms.get(code);
     if (!isValidRoomCode(code) || !room) return failure("unknown_room");
+    if (room.match && room.match.phase !== "abandoned") return failure("match_in_progress");
 
     const normalized = normalizeName(displayName);
     const nameError = validateName(normalized);
@@ -75,7 +80,7 @@ export class RoomRegistry {
       return failure("duplicate_name");
     }
 
-    const player = this.#makePlayer(normalized, connectionId, code, reconnect, sync);
+    const player = this.#makePlayer(normalized, connectionId, code, reconnect, sync, game);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
     room.players.push(player);
@@ -96,12 +101,13 @@ export class RoomRegistry {
       session.connectionId = null;
       session.expiresAt = this.#clock() + this.#graceMs;
       room.revision += 1;
+      if (room.match?.hasPlayer(session.playerId)) room.matchRevision += 1;
       return { roomCode: session.roomCode, snapshot: this.publicSnapshot(session.roomCode) };
     }
     return this.#dropPlayer(session);
   }
 
-  resumeRoom(roomCode, token, connectionId, { sync = false } = {}) {
+  resumeRoom(roomCode, token, connectionId, { sync = false, game = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -122,10 +128,13 @@ export class RoomRegistry {
     this.#tokens.delete(digest);
     player.connectionId = connectionId;
     player.sync = sync;
+    player.game = game;
     player.expiresAt = null;
     player.sessionId = this.#idGenerator();
     this.#sessions.set(connectionId, player);
-    this.#rooms.get(code).revision += 1;
+    const room = this.#rooms.get(code);
+    room.revision += 1;
+    if (room.match?.hasPlayer(player.playerId)) room.matchRevision += 1;
     return { ...success(code, player, this.publicSnapshot(code), nextToken), replacedConnectionId };
   }
 
@@ -135,6 +144,68 @@ export class RoomRegistry {
     this.#sessions.delete(connectionId);
     const removal = this.#dropPlayer(player);
     return { ok: true, roomCode: player.roomCode, snapshot: removal.snapshot };
+  }
+
+  startMatch(connectionId) {
+    this.expireReservations();
+    const player = this.#sessions.get(connectionId);
+    if (!player || player.connectionId !== connectionId) return failure("not_in_room");
+    const room = this.#rooms.get(player.roomCode);
+    if (room.match && room.match.phase !== "abandoned") return failure("match_in_progress");
+    if (room.players.length < MIN_MATCH_PLAYERS) return failure("not_enough_players");
+    if (room.players.some((member) => !member.connectionId)) return failure("players_disconnected");
+    if (room.players.some((member) => !member.game)) return failure("incompatible_client");
+    room.match = new HeistMatch(
+      room.players.map((member) => ({ playerId: member.playerId, name: member.displayName })),
+      this.#matchRandom ? { random: this.#matchRandom } : {},
+    );
+    room.matchRevision += 1;
+    return { ok: true, roomCode: room.roomCode };
+  }
+
+  /**
+   * Applies one player action to the caller's current match. The action is
+   * resolved against the server-owned player ID bound to this connection, so a
+   * client can never act for another seat.
+   */
+  matchAction(connectionId, action) {
+    this.expireReservations();
+    const player = this.#sessions.get(connectionId);
+    if (!player || player.connectionId !== connectionId) return failure("not_in_room");
+    const room = this.#rooms.get(player.roomCode);
+    if (!room.match || !room.match.active) return failure("no_active_match");
+    if (!room.match.hasPlayer(player.playerId)) return failure("not_in_match");
+    const result = action(room.match, player.playerId);
+    if (!result.ok) return failure(result.code);
+    if (result.changed) room.matchRevision += 1;
+    return { ok: true, roomCode: room.roomCode, changed: result.changed };
+  }
+
+  publicMatchSnapshot(roomCode) {
+    const room = this.#rooms.get(roomCode);
+    if (!room?.match) return null;
+    const connected = new Set(room.players.filter((member) => member.connectionId).map((member) => member.playerId));
+    return {
+      room_code: room.roomCode,
+      revision: room.matchRevision,
+      ...room.match.publicView({ connectedPlayerIds: connected }),
+    };
+  }
+
+  privateMatchState(connectionId) {
+    const player = this.#sessions.get(connectionId);
+    if (!player || player.connectionId !== connectionId) return null;
+    const room = this.#rooms.get(player.roomCode);
+    const view = room?.match?.privateView(player.playerId);
+    if (!view) return null;
+    return { room_code: room.roomCode, revision: room.matchRevision, ...view };
+  }
+
+  /** Connections that negotiated gameplay messages and may receive match state. */
+  matchConnectionIdsForRoom(roomCode) {
+    return (this.#rooms.get(roomCode)?.players ?? [])
+      .filter((player) => player.game && player.connectionId)
+      .map((player) => player.connectionId);
   }
 
   expireReservations() {
@@ -179,7 +250,7 @@ export class RoomRegistry {
     return [...this.#rooms.keys()];
   }
 
-  #makePlayer(displayName, connectionId, roomCode, reconnectable, sync) {
+  #makePlayer(displayName, connectionId, roomCode, reconnectable, sync, game) {
     const player = {
       playerId: this.#idGenerator(),
       sessionId: this.#idGenerator(),
@@ -188,6 +259,7 @@ export class RoomRegistry {
       roomCode,
       reconnectable,
       sync,
+      game,
       expiresAt: null,
     };
     return player;
@@ -212,8 +284,13 @@ export class RoomRegistry {
     const room = this.#rooms.get(player.roomCode);
     if (!room) return { roomCode: player.roomCode, snapshot: null };
     room.players = room.players.filter((member) => member !== player);
-    if (room.players.length === 0) this.#rooms.delete(player.roomCode);
-    else room.revision += 1;
+    if (room.players.length === 0) {
+      this.#rooms.delete(player.roomCode);
+    } else {
+      room.revision += 1;
+      // A permanently lost seat cannot be replaced mid-heist.
+      if (room.match?.hasPlayer(player.playerId) && room.match.abandon(player.displayName)) room.matchRevision += 1;
+    }
     return { roomCode: player.roomCode, snapshot: this.publicSnapshot(player.roomCode) };
   }
 }
