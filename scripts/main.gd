@@ -117,7 +117,7 @@ func _initialize_multiplayer() -> void:
 	add_child(room_client)
 	multiplayer_flow = MultiplayerFlowScript.new(room_client)
 	add_child(multiplayer_flow)
-	multiplayer_flow.state_changed.connect(func(_state: int) -> void: _render_multiplayer_state())
+	multiplayer_flow.state_changed.connect(_on_online_state_changed)
 	multiplayer_flow.feedback_changed.connect(func(message: String) -> void:
 		status_label.text = message
 	)
@@ -126,6 +126,15 @@ func _initialize_multiplayer() -> void:
 			_render_multiplayer_state()
 	)
 	multiplayer_flow.match_changed.connect(_render_multiplayer_state)
+	room_client.request_failed.connect(_on_online_request_failed)
+
+func _on_online_state_changed(_state: int) -> void:
+	online_sabotage_armed = false
+	_render_multiplayer_state()
+
+func _on_online_request_failed(_code: String, _message: String) -> void:
+	if multiplayer_flow.state == MultiplayerFlowScript.State.LOBBY:
+		_render_multiplayer_state()
 
 func _configured_room_endpoint() -> String:
 	var environment_endpoint := OS.get_environment("PROMPT_HEIST_WS_URL").strip_edges()
@@ -484,7 +493,8 @@ func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
 			var plan_id: String = plan.id
 			choose.pressed.connect(func() -> void:
 				choose.disabled = true
-				if not multiplayer_flow.vote(plan_id, online_sabotage_armed):
+				var sabotage_available: bool = bool(multiplayer_flow.match_private.get("sabotage_available", false))
+				if not multiplayer_flow.vote(plan_id, online_sabotage_armed and sabotage_available):
 					choose.disabled = false
 			)
 			card.add_child(choose)
