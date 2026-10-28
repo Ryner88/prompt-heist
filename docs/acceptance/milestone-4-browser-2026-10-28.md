@@ -21,10 +21,13 @@ The game requires at least three players to start. Ada and Ben exercised the req
 | Complete match | Three independent browsers advanced through private roles, briefing, three planning/voting/resolution rounds, and the final result. The selected plans scored 85, 88, and 84; the cooperative outcome was “EVERYONE WINS.” A second complete match assigned fresh roles. | [Recap](evidence/milestone-4-browser-2026-10-28/recap-scrollable.png). |
 | Play Again | All three surviving players selected “Back to the waiting room” in the second match. They returned to the same room and roster with Start available, without a refresh at this step. | [Three-player waiting room](evidence/milestone-4-browser-2026-10-28/play-again-three-players.png). |
 | Phone entry | Title, mode selection, Create/Join fields, validation, and room errors remained legible at 390×844. | [Phone entry](evidence/milestone-4-browser-2026-10-28/entry-phone.png). |
+| Phone match layout | At 390×844, the local pass-and-play lobby and planning cards fit within the viewport. After scrolling to “Begin private voting,” the voting screen opened at the top with the new instructions visible. Online match screens use the same meter and plan card components. | [Local lobby](evidence/milestone-4-browser-2026-10-28/phone-local-lobby.png), [planning](evidence/milestone-4-browser-2026-10-28/phone-planning.png), [voting after scroll reset](evidence/milestone-4-browser-2026-10-28/phone-voting-reset.png). |
 
 ## Issue found and fix
 
 At 1280×720, the original recap exceeded the canvas height and placed “Back to the waiting room” off-screen. The original `content` container had no scrolling. [Before the fix](evidence/milestone-4-browser-2026-10-28/recap-clipped-before-fix.png), the button was unreachable by a normal click. The fix wraps the game content in a `ScrollContainer` that expands with the viewport and follows focused controls. After a local Web re-export, the recap scrolled to the control, and the complete Play Again flow passed.
+
+Review also found that a persistent scroll offset could hide the next screen's heading, and that wide rows could be clipped on phones. The screen offset now resets when content changes; match meters and plan cards use one column below 700 pixels, and horizontal scrolling is disabled. Wrapped labels and a stacked local lobby entry row keep those screens within the phone viewport. The phone browser check above verified a scrolled planning-to-voting transition.
 
 ## Remaining product checks
 
