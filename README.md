@@ -32,9 +32,13 @@ The current prototype supports a complete three-round local pass-and-play missio
 - Complete match recap with revealed roles and accusation totals
 - New-game reset from the mission summary
 
+## Online heists
+
+Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage and every vote stay hidden until the round resolves. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role and the current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. After the recap, once everyone still in the room chooses **Back to the waiting room**, the room reopens with the same code for new players and another heist with fresh roles. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
+
 ## Next milestone
 
-Add reconnect and departure behavior before public deployment.
+The mobile and error-state pass, then public deployment and release validation.
 
 ## Authoritative room service
 
@@ -58,7 +62,7 @@ docker run --rm -p 10000:10000 prompt-heist-room-service
 curl --fail http://localhost:10000/healthz
 ```
 
-Rooms are intentionally process-local and ephemeral. Recovery-capable clients reserve a seat for 30 seconds after a transient disconnect; older protocol-v1 clients still release it immediately. An acknowledged Leave releases it immediately. A restart removes every room. Durable persistence, gameplay synchronization, and public deployment are not part of this slice.
+Rooms are intentionally process-local and ephemeral. Recovery-capable clients reserve a seat for 30 seconds after a transient disconnect; older protocol-v1 clients still release it immediately. An acknowledged Leave releases it immediately. A restart removes every room and any heist in progress. Durable persistence and public deployment are not part of this slice.
 
 ## Browser room flow
 
@@ -87,7 +91,7 @@ python3 -m http.server 8000 --directory builds/web
 
 Then open `http://127.0.0.1:8000/`. A future deployed HTTPS page must connect to a secure `wss://` room-service endpoint to avoid mixed-content blocking. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers. This PR does not deploy either component.
 
-The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for 30 seconds; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. No networked gameplay actions are available yet.
+The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for 30 seconds; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. With three or four players, any member can start the online heist from the waiting room.
 
 ## Tests
 
@@ -103,6 +107,12 @@ Run the real Godot-to-Node integration test while the room service is running:
 
 ```sh
 TEST_WS_URL=ws://127.0.0.1:3000/ws godot --headless --path . --script res://tests/network_integration_test.gd
+```
+
+After changing a heist payload, regenerate the shared contract fixture that both test suites check:
+
+```sh
+UPDATE_MATCH_FIXTURES=1 node --test server/test/match-contract.test.js
 ```
 
 The GDScript room registry remains a transport-independent domain reference. The Node service is authoritative for online room membership and identity.

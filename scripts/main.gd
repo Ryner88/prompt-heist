@@ -28,6 +28,7 @@ var online_endpoint := ""
 var online_create_button: Button
 var online_join_button: Button
 var online_validation_label: Label
+var online_sabotage_armed := false
 
 func _ready() -> void:
 	rng.randomize()
@@ -116,11 +117,24 @@ func _initialize_multiplayer() -> void:
 	add_child(room_client)
 	multiplayer_flow = MultiplayerFlowScript.new(room_client)
 	add_child(multiplayer_flow)
-	multiplayer_flow.state_changed.connect(func(_state: int) -> void: _render_multiplayer_state())
+	multiplayer_flow.state_changed.connect(_on_online_state_changed)
 	multiplayer_flow.feedback_changed.connect(func(message: String) -> void:
 		status_label.text = message
 	)
-	multiplayer_flow.lobby_changed.connect(func(_snapshot: Dictionary) -> void: _render_multiplayer_state())
+	multiplayer_flow.lobby_changed.connect(func(_snapshot: Dictionary) -> void:
+		if multiplayer_flow.state != MultiplayerFlowScript.State.MATCH:
+			_render_multiplayer_state()
+	)
+	multiplayer_flow.match_changed.connect(_render_multiplayer_state)
+	room_client.request_failed.connect(_on_online_request_failed)
+
+func _on_online_state_changed(_state: int) -> void:
+	online_sabotage_armed = false
+	_render_multiplayer_state()
+
+func _on_online_request_failed(_code: String, _message: String) -> void:
+	if multiplayer_flow.state == MultiplayerFlowScript.State.LOBBY:
+		_render_multiplayer_state()
 
 func _configured_room_endpoint() -> String:
 	var environment_endpoint := OS.get_environment("PROMPT_HEIST_WS_URL").strip_edges()
@@ -142,6 +156,8 @@ func _render_multiplayer_state() -> void:
 			_show_online_entry(multiplayer_flow.state == MultiplayerFlowScript.State.SUBMITTING)
 		MultiplayerFlowScript.State.LOBBY, MultiplayerFlowScript.State.LEAVING:
 			_show_online_lobby()
+		MultiplayerFlowScript.State.MATCH:
+			_show_online_match()
 		_:
 			_show_online_disconnected()
 
@@ -288,11 +304,29 @@ func _show_online_lobby() -> void:
 		player_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		player_label.add_theme_font_size_override("font_size", 21)
 		content.add_child(player_label)
+	var can_start: bool = snapshot.player_count >= 3
 	var waiting_status := Label.new()
-	waiting_status.text = "Room full — waiting for network gameplay in a later slice." if snapshot.player_count == snapshot.max_players else "Waiting for more players…"
+	if snapshot.player_count == snapshot.max_players:
+		waiting_status.text = "Room full. Anyone can start the heist; four players adds a hidden Informant."
+	elif can_start:
+		waiting_status.text = "Ready for a cooperative heist, or wait for a fourth player to add a hidden Informant."
+	else:
+		waiting_status.text = "Waiting for more players… At least three are needed."
 	waiting_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	waiting_status.add_theme_color_override("font_color", Color("62d6a7") if snapshot.player_count == snapshot.max_players else Color("8fa3bf"))
+	waiting_status.add_theme_color_override("font_color", Color("62d6a7") if can_start else Color("8fa3bf"))
 	content.add_child(waiting_status)
+	var start_heist := Button.new()
+	start_heist.text = "Start heist"
+	start_heist.custom_minimum_size = Vector2(0, 48)
+	start_heist.disabled = not multiplayer_flow.can_start_match()
+	start_heist.pressed.connect(func() -> void:
+		start_heist.disabled = true
+		start_heist.text = "Starting…"
+		if not multiplayer_flow.start_match():
+			start_heist.disabled = false
+			start_heist.text = "Start heist"
+	)
+	content.add_child(start_heist)
 	var connection := Label.new()
 	connection.text = "● Connected"
 	connection.add_theme_color_override("font_color", Color("62d6a7"))
@@ -302,6 +336,265 @@ func _show_online_lobby() -> void:
 	leave.disabled = multiplayer_flow.state == MultiplayerFlowScript.State.LEAVING
 	leave.pressed.connect(func() -> void: multiplayer_flow.leave_lobby())
 	content.add_child(leave)
+
+func _show_online_match() -> void:
+	var snapshot: Dictionary = multiplayer_flow.match_snapshot
+	if snapshot.is_empty():
+		return
+	var phase: String = snapshot.phase
+	match phase:
+		"role_reveal":
+			_show_online_role(snapshot)
+		"briefing":
+			_show_online_briefing(snapshot)
+		"planning":
+			_show_online_planning(snapshot)
+		"voting":
+			_show_online_voting(snapshot)
+		"resolution":
+			_show_online_resolution(snapshot)
+		"accusation":
+			_show_online_accusation(snapshot)
+		"finished":
+			_show_online_recap(snapshot)
+	_add_online_presence(snapshot)
+
+func _add_online_meters(snapshot: Dictionary) -> void:
+	var meters_data: Dictionary = snapshot.meters
+	var meters := HBoxContainer.new()
+	meters.add_theme_constant_override("separation", 24)
+	content.add_child(meters)
+	meters.add_child(_make_meter("TIME", meters_data.time, meters_data.max_time, Color("56cfe1")))
+	meters.add_child(_make_meter("SUSPICION", meters_data.suspicion, meters_data.max_suspicion, Color("ef6f6c")))
+	meters.add_child(_make_meter("RESOURCES", meters_data.resources, meters_data.max_resources, Color("f4c95d")))
+
+func _online_heading(text: String, color: Color = Color("f4c95d"), size: int = 30) -> Label:
+	var heading := Label.new()
+	heading.text = text
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	heading.add_theme_font_size_override("font_size", size)
+	heading.add_theme_color_override("font_color", color)
+	content.add_child(heading)
+	return heading
+
+func _online_text(text: String, color: Color = Color("e6ebf2"), size: int = 18) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", color)
+	content.add_child(label)
+	return label
+
+## The shared "continue" control for steps that advance once every seat is ready.
+func _add_ready_button(label_text: String) -> void:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(0, 48)
+	if multiplayer_flow.is_ready():
+		button.text = "Waiting for the crew…"
+		button.disabled = true
+	else:
+		button.text = label_text
+		button.disabled = not multiplayer_flow.can_act()
+	button.pressed.connect(func() -> void:
+		button.disabled = true
+		if not multiplayer_flow.ready_current_step():
+			button.disabled = false
+	)
+	content.add_child(button)
+
+func _add_online_presence(snapshot: Dictionary) -> void:
+	var phase: String = snapshot.phase
+	var progress: Dictionary = snapshot.progress
+	var lines: Array[String] = []
+	if RoomProtocolScript.READY_PHASES.has(phase) or phase == "voting":
+		var waiting: Array[String] = []
+		for seat in snapshot.seats:
+			var done: bool = seat.ready if phase != "voting" else seat.acted
+			if not done:
+				waiting.append(seat.name)
+		var verb := "voted" if phase == "voting" else "ready"
+		if phase == "finished":
+			verb = "back to the waiting room"
+		lines.append("%d of %d %s%s" % [progress.done, progress.needed, verb, "" if waiting.is_empty() else " • waiting for " + ", ".join(waiting)])
+	elif phase == "accusation":
+		lines.append("%d of %d accusations cast" % [progress.done, progress.needed])
+	var offline: Array[String] = []
+	for seat in snapshot.seats:
+		if not seat.connected:
+			offline.append(seat.name)
+	if not offline.is_empty():
+		lines.append("Reconnecting: %s. Their seat is held for 30 seconds." % ", ".join(offline))
+	if not lines.is_empty():
+		_online_text("\n".join(lines), Color("8fa3bf"), 15)
+	var leave := Button.new()
+	leave.text = "Leave room" if phase == "finished" else "Leave heist (ends it for everyone)"
+	leave.pressed.connect(func() -> void: multiplayer_flow.leave_lobby())
+	content.add_child(leave)
+
+func _show_online_role(snapshot: Dictionary) -> void:
+	subtitle_label.text = "ONLINE • YOUR SECRET ROLE"
+	var private_state: Dictionary = multiplayer_flow.match_private
+	if private_state.is_empty():
+		_online_text("Receiving your role…")
+		return
+	_online_text("Only you can see this. Keep your screen to yourself.", Color("8fa3bf"))
+	var is_informant: bool = multiplayer_flow.is_informant()
+	_online_heading(private_state.role, Color("ef6f6c") if is_informant else Color("f4c95d"), 38)
+	_online_text(private_state.ability, Color("e6ebf2"), 20)
+	var mode_note := "This is a cooperative heist: there is no Informant." if snapshot.mode == "cooperative" else "One player is a hidden Informant."
+	_online_text(mode_note, Color("8fa3bf"))
+	_add_ready_button("I've seen my role")
+
+func _show_online_briefing(snapshot: Dictionary) -> void:
+	subtitle_label.text = "ONLINE • MISSION BRIEFING"
+	var mission: Dictionary = snapshot.mission
+	_online_heading(mission.title, Color("f4c95d"), 34)
+	_online_text("OBJECTIVE\n%s" % mission.objective, Color("e6ebf2"), 21)
+	_online_text("KNOWN COMPLICATION\n%s" % mission.complication, Color("ef6f6c"), 21)
+	_online_text("Three decisions stand between the crew and a clean extraction. Every vote matters.", Color("8fa3bf"))
+	_add_ready_button("Continue to planning")
+
+func _show_online_planning(snapshot: Dictionary) -> void:
+	subtitle_label.text = "ONLINE • ROUND %d OF %d • PLANNING" % [snapshot.round, snapshot.total_rounds]
+	_add_online_meters(snapshot)
+	_online_text("Talk it through. Costs always apply; risk shapes suspicion.")
+	_add_online_plan_cards(snapshot, false)
+	_add_ready_button("Ready to vote")
+
+func _show_online_voting(snapshot: Dictionary) -> void:
+	subtitle_label.text = "ONLINE • ROUND %d • SECRET BALLOT" % snapshot.round
+	_add_online_meters(snapshot)
+	if multiplayer_flow.has_voted():
+		_online_text("Your vote is locked in. Votes stay hidden until everyone has chosen.", Color("62d6a7"))
+	else:
+		_online_text("Choose one plan. Votes stay hidden until everyone has chosen.")
+	if bool(multiplayer_flow.match_private.get("sabotage_available", false)):
+		var sabotage := CheckBox.new()
+		sabotage.text = "Sabotage this round (once per match; adds 2 suspicion)"
+		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
+		sabotage.button_pressed = online_sabotage_armed
+		sabotage.toggled.connect(func(pressed: bool) -> void: online_sabotage_armed = pressed)
+		content.add_child(sabotage)
+	_add_online_plan_cards(snapshot, not multiplayer_flow.has_voted())
+
+func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 14)
+	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(cards)
+	var my_vote: Variant = multiplayer_flow.match_private.get("vote")
+	for plan in snapshot.plans:
+		var card: VBoxContainer = _make_plan_card(plan, false)
+		if voting:
+			var choose := Button.new()
+			choose.text = "Vote for this plan"
+			choose.disabled = not multiplayer_flow.can_act()
+			var plan_id: String = plan.id
+			choose.pressed.connect(func() -> void:
+				choose.disabled = true
+				var sabotage_available: bool = bool(multiplayer_flow.match_private.get("sabotage_available", false))
+				if not multiplayer_flow.vote(plan_id, online_sabotage_armed and sabotage_available):
+					choose.disabled = false
+			)
+			card.add_child(choose)
+		elif my_vote != null and my_vote == plan.id:
+			var chosen := Label.new()
+			chosen.text = "✓ Your vote"
+			chosen.add_theme_color_override("font_color", Color("62d6a7"))
+			card.add_child(chosen)
+		cards.add_child(card)
+
+func _show_online_resolution(snapshot: Dictionary) -> void:
+	online_sabotage_armed = false
+	var result: Dictionary = snapshot.last_result
+	subtitle_label.text = "ONLINE • ROUND %d • MISSION CONSEQUENCES" % result.round
+	_add_online_meters(snapshot)
+	_online_heading("SUCCESS" if result.success else "FAILURE", Color("62d6a7") if result.success else Color("ef6f6c"), 36)
+	_online_text("Selected plan: %s  •  Deterministic score: %d/100" % [result.plan_title, result.score], Color("e6ebf2"), 22)
+	var tally_parts: Array[String] = []
+	for plan in snapshot.plans:
+		tally_parts.append("%s: %d" % [plan.title, result.tallies.get(plan.id, 0)])
+	if snapshot.round == result.round:
+		_online_text("Vote tally — %s" % "  •  ".join(tally_parts))
+	if result.was_tie:
+		_online_text("Tie resolved by the standing rule: lowest-risk tied plan, then card order.", Color("f4c95d"))
+	_online_text(result.consequence, Color("e6ebf2"), 20)
+	if result.mission_failed:
+		_online_text(result.failure_reason, Color("ef6f6c"), 20)
+	var label_text: String = "Continue to round %d" % (int(snapshot.round) + 1)
+	if result.mission_failed or snapshot.round >= snapshot.total_rounds:
+		label_text = "View mission outcome"
+	_add_ready_button(label_text)
+
+func _show_online_accusation(snapshot: Dictionary) -> void:
+	subtitle_label.text = "ONLINE • FINAL ACCUSATION • PRIVATE VOTE"
+	if multiplayer_flow.is_informant():
+		_online_heading("The crew is deciding who betrayed them.", Color("ef6f6c"), 26)
+		_online_text("Stay calm. You do not vote in the accusation.", Color("8fa3bf"))
+		return
+	if multiplayer_flow.has_accused():
+		var accused: int = int(multiplayer_flow.match_private.accusation)
+		_online_heading("You accused %s." % snapshot.seats[accused].name, Color("f4c95d"), 26)
+		_online_text("Waiting for the rest of the crew to decide.", Color("8fa3bf"))
+		return
+	_online_heading("Who was the Informant?", Color("f4c95d"), 30)
+	_online_text("Your accusation is private. You cannot vote for yourself.", Color("8fa3bf"))
+	for seat in snapshot.seats:
+		var suspect_seat: int = seat.seat
+		if suspect_seat == multiplayer_flow.my_seat():
+			continue
+		var accuse := Button.new()
+		accuse.text = "Accuse %s" % seat.name
+		accuse.custom_minimum_size = Vector2(0, 44)
+		accuse.disabled = not multiplayer_flow.can_act()
+		accuse.pressed.connect(func() -> void:
+			accuse.disabled = true
+			if not multiplayer_flow.accuse(suspect_seat):
+				accuse.disabled = false
+		)
+		content.add_child(accuse)
+
+func _show_online_recap(snapshot: Dictionary) -> void:
+	var outcome: Dictionary = snapshot.outcome
+	subtitle_label.text = "ONLINE • MISSION COMPLETE • %d ROUND%s RESOLVED" % [outcome.history.size(), "" if outcome.history.size() == 1 else "S"]
+	_add_online_meters(snapshot)
+	var winner: String = outcome.winner
+	var headline := "THE CREW LOSES"
+	match winner:
+		"Crew": headline = "THE CREW WINS"
+		"Informant": headline = "THE INFORMANT WINS"
+		"Everyone": headline = "EVERYONE WINS"
+	_online_heading(headline, Color("62d6a7") if winner == "Crew" or winner == "Everyone" else Color("ef6f6c"), 36)
+	var meters_data: Dictionary = snapshot.meters
+	_online_text("%d of %d plans succeeded. Final time: %d. Final suspicion: %d. Resources left: %d." % [outcome.successful_rounds, snapshot.total_rounds, meters_data.time, meters_data.suspicion, meters_data.resources], Color("e6ebf2"), 21)
+	var lines: Array[String] = []
+	lines.append("WINNING SIDE: %s" % winner.to_upper())
+	lines.append("MISSION: Collapsed — %s" % outcome.failure_reason if outcome.mission_failed else "MISSION: Completed")
+	lines.append("SABOTAGE USED: %s" % ("Yes" if outcome.sabotage_used else "No"))
+	lines.append("")
+	lines.append("ROLES")
+	for role in outcome.roles:
+		var you := " (you)" if role.seat == multiplayer_flow.my_seat() else ""
+		lines.append("• %s%s — %s" % [snapshot.seats[role.seat].name, you, role.role])
+	lines.append("")
+	lines.append("MISSION RESULTS")
+	for entry in outcome.history:
+		lines.append("• Round %d: %s — %s (%d/100)" % [entry.round, entry.plan_title, "Success" if entry.success else "Failure", entry.score])
+	lines.append("")
+	lines.append("ACCUSATION TOTALS")
+	if outcome.accusation == null:
+		lines.append("• Skipped")
+	else:
+		var accusation: Dictionary = outcome.accusation
+		for seat in snapshot.seats:
+			lines.append("• %s: %d" % [seat.name, accusation.totals[seat.seat]])
+		if accusation.tied:
+			lines.append("Result: Tie — accusation failed")
+		else:
+			lines.append("Accused: %s" % snapshot.seats[int(accusation.accused_seat)].name)
+	_online_text("\n".join(lines), Color("e6ebf2"), 15)
+	_add_ready_button("Back to the waiting room")
 
 func _show_lobby() -> void:
 	_clear_content()

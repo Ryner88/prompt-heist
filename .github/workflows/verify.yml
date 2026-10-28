@@ -74,6 +74,10 @@ jobs:
             "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" \
             --headless --path . --script res://tests/network_integration_test.gd \
             2>&1 | tee godot-integration-report.txt
+          TEST_WS_URL=ws://127.0.0.1:3000/ws \
+            "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" \
+            --headless --path . --script res://tests/network_match_integration_test.gd \
+            2>&1 | tee -a godot-integration-report.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:

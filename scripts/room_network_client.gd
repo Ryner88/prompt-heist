@@ -10,11 +10,15 @@ signal shutdown_announced(message: String)
 signal protocol_warning(message: String)
 signal recovery_started()
 signal left_room()
+signal match_snapshot_received(snapshot: Dictionary)
+signal match_private_received(state: Dictionary)
 
 const Protocol = preload("res://scripts/room_protocol.gd")
 const DefaultTransport = preload("res://scripts/websocket_transport.gd")
 const REQUEST_TIMEOUT_MS := 10000
 const RECOVERY_STORAGE_KEY := "prompt_heist_room_recovery_v1"
+const SEAT_COMMANDS := ["create_room", "join_room", "resume_room"]
+const MATCH_COMMANDS := ["start_match", "ready", "cast_vote", "accuse"]
 
 var player_id := ""
 var session_id := ""
@@ -22,6 +26,9 @@ var active_room_code := ""
 var reconnect_token := ""
 var reconnect_room_code := ""
 var connection_generation := 0
+var _last_revision := 0
+var _last_match_revision := 0
+var _last_private_revision := 0
 
 var _transport: RefCounted
 var _pending: Dictionary = {}
@@ -80,7 +87,7 @@ func poll_transport() -> void:
 			_connected = true
 			if has_recovery():
 				recovery_started.emit()
-				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token}):
+				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token, "sync": true, "game": true}):
 					disconnect_from_service(false)
 					disconnected.emit("Could not request room recovery. Connect again to retry.")
 			else:
@@ -101,19 +108,44 @@ func poll_transport() -> void:
 			_handle_disconnect("The room service disconnected. Retry to recover your reserved seat." if reason.is_empty() else "The room service disconnected. Retry to recover your reserved seat.")
 
 func create_room(display_name: String) -> bool:
-	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true})
+	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true, "sync": true, "game": true})
 
 func join_room(room_code: String, display_name: String) -> bool:
 	return _send_command("join_room", {
 		"room_code": Protocol.normalize_room_code(room_code),
 		"display_name": Protocol.normalize_name(display_name),
 		"reconnect": true,
+		"sync": true,
+		"game": true,
 	})
 
 func leave_room() -> bool:
 	if active_room_code.is_empty():
 		return false
 	return _send_command("leave_room", {})
+
+func start_match() -> bool:
+	if active_room_code.is_empty():
+		return false
+	return _send_command("start_match", {})
+
+func ready_step(phase: String, round_number: int) -> bool:
+	if active_room_code.is_empty() or not Protocol.READY_PHASES.has(phase):
+		return false
+	return _send_command("ready", {"phase": phase, "round": round_number})
+
+func cast_vote(round_number: int, plan_id: String, sabotage: bool = false) -> bool:
+	if active_room_code.is_empty():
+		return false
+	var payload := {"round": round_number, "plan_id": plan_id}
+	if sabotage:
+		payload["sabotage"] = true
+	return _send_command("cast_vote", payload)
+
+func accuse(suspect_seat: int) -> bool:
+	if active_room_code.is_empty():
+		return false
+	return _send_command("accuse", {"suspect_seat": suspect_seat})
 
 func has_recovery() -> bool:
 	return not reconnect_token.is_empty() and not reconnect_room_code.is_empty()
@@ -149,6 +181,8 @@ func ingest_server_text(text: String, generation: int) -> void:
 	match message_type:
 		"command_result": _handle_command_result(parsed)
 		"room_snapshot": _handle_snapshot(parsed)
+		"match_snapshot": _handle_match_snapshot(parsed)
+		"match_private": _handle_match_private(parsed)
 		"error": _handle_error(parsed)
 		"server_shutdown": _handle_shutdown(parsed)
 		_: protocol_warning.emit("The room service sent an unsupported response.")
@@ -178,7 +212,8 @@ func _handle_command_result(message: Dictionary) -> void:
 	if pending.generation != connection_generation:
 		return
 	var payload: Dictionary = message.payload
-	var expected := ["command", "room_code"] if pending.command == "leave_room" else ["command", "room_code", "player_id", "session_id", "reconnect_token"]
+	var binds_seat: bool = SEAT_COMMANDS.has(pending.command)
+	var expected := ["command", "room_code", "player_id", "session_id", "reconnect_token"] if binds_seat else ["command", "room_code"]
 	if payload.keys().size() != expected.size():
 		_reject_invalid_result(request_id)
 		return
@@ -189,8 +224,8 @@ func _handle_command_result(message: Dictionary) -> void:
 	if payload.command != pending.command or Protocol.validate_room_code(payload.room_code) != "" \
 			or payload.room_code != Protocol.normalize_room_code(payload.room_code) \
 			or (pending.command in ["join_room", "resume_room"] and payload.room_code != pending.room_code) \
-			or (pending.command == "leave_room" and payload.room_code != active_room_code) \
-			or (pending.command != "leave_room" and not _valid_reconnect_token(payload.reconnect_token)):
+			or (not binds_seat and payload.room_code != active_room_code) \
+			or (binds_seat and not _valid_reconnect_token(payload.reconnect_token)):
 		_reject_invalid_result(request_id)
 		return
 	_pending.erase(request_id)
@@ -198,9 +233,15 @@ func _handle_command_result(message: Dictionary) -> void:
 		disconnect_from_service()
 		left_room.emit()
 		return
+	if not binds_seat:
+		command_succeeded.emit(payload.command, {"command": payload.command, "room_code": payload.room_code})
+		return
 	player_id = payload.player_id
 	session_id = payload.session_id
 	active_room_code = payload.room_code
+	_last_revision = 0
+	_last_match_revision = 0
+	_last_private_revision = 0
 	reconnect_token = payload.reconnect_token
 	reconnect_room_code = payload.room_code
 	_save_recovery()
@@ -223,7 +264,36 @@ func _handle_snapshot(message: Dictionary) -> void:
 	if active_room_code.is_empty() or snapshot.room_code != active_room_code:
 		protocol_warning.emit("A snapshot outside the active room was ignored.")
 		return
+	if snapshot.revision <= _last_revision:
+		return
+	_last_revision = snapshot.revision
 	room_snapshot_received.emit(snapshot.duplicate(true))
+
+func _handle_match_snapshot(message: Dictionary) -> void:
+	if message.request_id != null or not Protocol.validate_match_snapshot(message.payload):
+		protocol_warning.emit("The room service returned an invalid heist update.")
+		return
+	var snapshot: Dictionary = Protocol.normalized_match_snapshot(message.payload)
+	if active_room_code.is_empty() or snapshot.room_code != active_room_code:
+		protocol_warning.emit("A heist update outside the active room was ignored.")
+		return
+	if snapshot.revision <= _last_match_revision:
+		return
+	_last_match_revision = snapshot.revision
+	match_snapshot_received.emit(snapshot.duplicate(true))
+
+func _handle_match_private(message: Dictionary) -> void:
+	if message.request_id != null or not Protocol.validate_match_private(message.payload):
+		protocol_warning.emit("The room service returned an invalid private heist update.")
+		return
+	var state: Dictionary = Protocol.normalized_match_private(message.payload)
+	if active_room_code.is_empty() or state.room_code != active_room_code:
+		protocol_warning.emit("A private heist update outside the active room was ignored.")
+		return
+	if state.revision <= _last_private_revision:
+		return
+	_last_private_revision = state.revision
+	match_private_received.emit(state.duplicate(true))
 
 func _handle_error(message: Dictionary) -> void:
 	var payload: Dictionary = message.payload
@@ -275,6 +345,9 @@ func _clear_session() -> void:
 	player_id = ""
 	session_id = ""
 	active_room_code = ""
+	_last_revision = 0
+	_last_match_revision = 0
+	_last_private_revision = 0
 	_pending.clear()
 
 func _expire_pending_request() -> void:

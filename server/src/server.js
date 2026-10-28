@@ -10,11 +10,21 @@ import { decodeClientMessage, errorResponse, recoverRequestId, response } from "
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry } from "./room-registry.js";
 
-export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger } = {}) {
+export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger,
+  sweepIntervalMs = 1_000 } = {}) {
   const connections = new Map();
   let ready = false;
   let shuttingDown = false;
-  const expiryTimer = setInterval(sweepExpiredSeats, 1_000);
+  let refreshTicks = 0;
+  const expiryTimer = setInterval(() => {
+    sweepExpiredSeats();
+    if (++refreshTicks % 5 === 0) {
+      for (const roomCode of registry.roomCodes()) {
+        broadcastSnapshot(roomCode);
+        broadcastMatch(roomCode);
+      }
+    }
+  }, sweepIntervalMs);
   expiryTimer.unref();
 
   const httpServer = http.createServer((request, reply) => {
@@ -59,7 +69,10 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
     websocket.on("close", () => {
       if (!connections.delete(connectionId)) return;
       const removal = registry.removeConnection(connectionId);
-      if (removal?.snapshot) broadcastSnapshot(removal.roomCode);
+      if (removal?.snapshot) {
+        broadcastSnapshot(removal.roomCode);
+        broadcastMatch(removal.roomCode);
+      }
       logger("connection_closed", { active_connections: connections.size });
     });
   });
@@ -118,36 +131,12 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       return;
     }
 
-    let result;
-    if (message.type === "create_room") {
-      if (registry.sessionForConnection(context.connectionId)) {
-        result = { ok: false, code: "connection_already_joined" };
-      } else {
-        result = registry.createRoom(message.payload.display_name, context.connectionId, {
-          reconnect: message.payload.reconnect === true,
-        });
-      }
-    } else if (message.type === "join_room") {
-      result = registry.joinRoom(
-        message.payload.room_code,
-        message.payload.display_name,
-        context.connectionId,
-        { reconnect: message.payload.reconnect === true },
-      );
-    } else if (message.type === "resume_room") {
-      result = registry.resumeRoom(
-        message.payload.room_code,
-        message.payload.reconnect_token,
-        context.connectionId,
-      );
-    } else {
-      result = registry.leaveRoom(context.connectionId);
-    }
-
+    const result = dispatch(context, message);
+    const bindsSeat = SEAT_COMMANDS.has(message.type);
     const direct = result.ok
       ? response(
           "command_result",
-          message.type === "leave_room" ? { command: "leave_room", room_code: result.roomCode } : {
+          !bindsSeat ? { command: message.type, room_code: result.roomCode } : {
             command: message.type,
             room_code: result.roomCode,
             player_id: result.playerId,
@@ -167,26 +156,94 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
           replaced.websocket.close(1000, "session replaced");
         }
       }
-      if (message.type !== "leave_room" || result.snapshot) broadcastSnapshot(result.roomCode);
+      if (MATCH_COMMANDS.has(message.type)) {
+        if (result.changed === false) return;
+        broadcastMatch(result.roomCode);
+        const match = registry.publicMatchSnapshot(result.roomCode);
+        if (message.type === "start_match") logger("match_started", { players: match.seats.length, mode: match.mode });
+        else if (match.phase === "finished") logger("match_finished", { winner: match.outcome.winner });
+        return;
+      }
+      if (message.type !== "leave_room" || result.snapshot) {
+        broadcastSnapshot(result.roomCode);
+        broadcastMatch(result.roomCode);
+      }
+    }
+  }
+
+  function dispatch(context, message) {
+    const { payload } = message;
+    const capabilities = { sync: payload.sync === true, game: payload.game === true };
+    switch (message.type) {
+      case "create_room":
+        if (registry.sessionForConnection(context.connectionId)) return { ok: false, code: "connection_already_joined" };
+        return registry.createRoom(payload.display_name, context.connectionId, {
+          reconnect: payload.reconnect === true,
+          ...capabilities,
+        });
+      case "join_room":
+        return registry.joinRoom(payload.room_code, payload.display_name, context.connectionId, {
+          reconnect: payload.reconnect === true,
+          ...capabilities,
+        });
+      case "resume_room":
+        return registry.resumeRoom(payload.room_code, payload.reconnect_token, context.connectionId, capabilities);
+      case "leave_room":
+        return registry.leaveRoom(context.connectionId);
+      case "start_match":
+        return registry.startMatch(context.connectionId);
+      case "ready":
+        return registry.matchAction(context.connectionId, (match, playerId) => match.ready(playerId, payload.phase, payload.round));
+      case "cast_vote":
+        return registry.matchAction(context.connectionId, (match, playerId) =>
+          match.castVote(playerId, payload.round, payload.plan_id, { sabotage: payload.sabotage === true }));
+      default:
+        return registry.matchAction(context.connectionId, (match, playerId) => match.accuse(playerId, payload.suspect_seat));
+    }
+  }
+
+  /**
+   * Sends every game-capable member the shared public view and, separately,
+   * only that member's private seat view.
+   */
+  function broadcastMatch(roomCode) {
+    const snapshot = registry.publicMatchSnapshot(roomCode);
+    if (!snapshot) return;
+    for (const connectionId of registry.matchConnectionIdsForRoom(roomCode)) {
+      const context = connections.get(connectionId);
+      if (!context) continue;
+      send(context.websocket, response("match_snapshot", snapshot));
+      const privateState = registry.privateMatchState(connectionId);
+      if (privateState) send(context.websocket, response("match_private", privateState));
     }
   }
 
   function sweepExpiredSeats() {
-    for (const roomCode of registry.expireReservations()) broadcastSnapshot(roomCode);
+    for (const roomCode of registry.expireReservations()) {
+      broadcastSnapshot(roomCode);
+      broadcastMatch(roomCode);
+    }
   }
 
   function broadcastSnapshot(roomCode) {
-    const snapshot = registry.publicSnapshot(roomCode);
-    if (!snapshot) return;
-    const message = response("room_snapshot", snapshot);
+    const legacy = registry.publicSnapshot(roomCode);
+    if (!legacy) return;
+    const revisioned = registry.publicSnapshot(roomCode, { revision: true });
     for (const connectionId of registry.connectionIdsForRoom(roomCode)) {
       const context = connections.get(connectionId);
-      if (context) send(context.websocket, message);
+      if (context) {
+        const session = registry.sessionForConnection(connectionId);
+        send(context.websocket, response("room_snapshot", session?.sync ? revisioned : legacy));
+      }
     }
   }
 
   return { listen, close, sendPrivate, httpServer, registry };
 }
+
+// Commands whose direct result binds a seat and carries its private identity.
+const SEAT_COMMANDS = new Set(["create_room", "join_room", "resume_room"]);
+const MATCH_COMMANDS = new Set(["start_match", "ready", "cast_vote", "accuse"]);
 
 function cacheResponse(context, requestId, message) {
   context.requestCache.set(requestId, message);

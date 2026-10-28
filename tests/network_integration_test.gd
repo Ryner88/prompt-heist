@@ -130,7 +130,7 @@ func _last_error(client: Node) -> String:
 func _snapshot_is_public(snapshot: Dictionary) -> bool:
 	var keys := snapshot.keys()
 	keys.sort()
-	return keys == ["max_players", "player_count", "player_names", "room_code"]
+	return keys == ["max_players", "player_count", "player_names", "revision", "room_code"]
 
 func _wait_until(predicate: Callable, timeout_ms := 4000) -> bool:
 	var deadline := Time.get_ticks_msec() + timeout_ms
