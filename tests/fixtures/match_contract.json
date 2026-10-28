@@ -1,0 +1,1023 @@
+{
+  "valid_public": {
+    "social_role_reveal": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 1,
+        "phase": "role_reveal",
+        "mode": "social",
+        "round": 1,
+        "total_rounds": 3,
+        "meters": {
+          "time": 12,
+          "max_time": 12,
+          "suspicion": 1,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 7,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "ghost",
+            "title": "Ghost the Service Hall",
+            "description": "Slip through staff corridors while the expo changes shifts.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "spoof",
+            "title": "Spoof a Vendor Badge",
+            "description": "Clone credentials and walk through the front checkpoint.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "blackout",
+            "title": "Stage a Blackout",
+            "description": "Cut local power and move under emergency lighting.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 3,
+            "name": "Dee",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 4
+        },
+        "last_result": null,
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "social_voting": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 14,
+        "phase": "voting",
+        "mode": "social",
+        "round": 1,
+        "total_rounds": 3,
+        "meters": {
+          "time": 12,
+          "max_time": 12,
+          "suspicion": 1,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 7,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "ghost",
+            "title": "Ghost the Service Hall",
+            "description": "Slip through staff corridors while the expo changes shifts.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "spoof",
+            "title": "Spoof a Vendor Badge",
+            "description": "Clone credentials and walk through the front checkpoint.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "blackout",
+            "title": "Stage a Blackout",
+            "description": "Cut local power and move under emergency lighting.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": true
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 3,
+            "name": "Dee",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 1,
+          "needed": 4
+        },
+        "last_result": null,
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "social_resolution_sabotaged": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 17,
+        "phase": "resolution",
+        "mode": "social",
+        "round": 1,
+        "total_rounds": 3,
+        "meters": {
+          "time": 9,
+          "max_time": 12,
+          "suspicion": 2,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 6,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "ghost",
+            "title": "Ghost the Service Hall",
+            "description": "Slip through staff corridors while the expo changes shifts.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "spoof",
+            "title": "Spoof a Vendor Badge",
+            "description": "Clone credentials and walk through the front checkpoint.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "blackout",
+            "title": "Stage a Blackout",
+            "description": "Cut local power and move under emergency lighting.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 3,
+            "name": "Dee",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 4
+        },
+        "last_result": {
+          "round": 1,
+          "plan_id": "ghost",
+          "plan_title": "Ghost the Service Hall",
+          "tallies": {
+            "ghost": 4,
+            "spoof": 0,
+            "blackout": 0
+          },
+          "was_tie": false,
+          "score": 85,
+          "success": true,
+          "sabotage_applied": true,
+          "consequence": "Ghost the Service Hall works. The crew stays ahead of security and preserves momentum. An unexplained complication raises suspicion by 2.",
+          "mission_failed": false,
+          "failure_reason": ""
+        },
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "social_accusation": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 46,
+        "phase": "accusation",
+        "mode": "social",
+        "round": 3,
+        "total_rounds": 3,
+        "meters": {
+          "time": 3,
+          "max_time": 12,
+          "suspicion": 0,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 4,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "freight",
+            "title": "Escape via Freight Lift",
+            "description": "Move the prototype inside a sealed equipment case.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "rooftop",
+            "title": "Take the Rooftop Route",
+            "description": "Climb above the patrol grid and cross to the parking tower.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "motorcade",
+            "title": "Bluff the Motorcade",
+            "description": "Spend the last favors on an official-looking extraction.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 3,
+            "name": "Dee",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 1,
+          "needed": 3
+        },
+        "last_result": {
+          "round": 3,
+          "plan_id": "rooftop",
+          "plan_title": "Take the Rooftop Route",
+          "tallies": {
+            "freight": 0,
+            "rooftop": 4,
+            "motorcade": 0
+          },
+          "was_tie": false,
+          "score": 80,
+          "success": true,
+          "sabotage_applied": false,
+          "consequence": "Take the Rooftop Route works. The crew stays ahead of security and preserves momentum.",
+          "mission_failed": false,
+          "failure_reason": ""
+        },
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "social_finished_crew_wins": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 48,
+        "phase": "finished",
+        "mode": "social",
+        "round": 3,
+        "total_rounds": 3,
+        "meters": {
+          "time": 3,
+          "max_time": 12,
+          "suspicion": 0,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 4,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "freight",
+            "title": "Escape via Freight Lift",
+            "description": "Move the prototype inside a sealed equipment case.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "rooftop",
+            "title": "Take the Rooftop Route",
+            "description": "Climb above the patrol grid and cross to the parking tower.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "motorcade",
+            "title": "Bluff the Motorcade",
+            "description": "Spend the last favors on an official-looking extraction.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 3,
+            "name": "Dee",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 0
+        },
+        "last_result": {
+          "round": 3,
+          "plan_id": "rooftop",
+          "plan_title": "Take the Rooftop Route",
+          "tallies": {
+            "freight": 0,
+            "rooftop": 4,
+            "motorcade": 0
+          },
+          "was_tie": false,
+          "score": 80,
+          "success": true,
+          "sabotage_applied": false,
+          "consequence": "Take the Rooftop Route works. The crew stays ahead of security and preserves momentum.",
+          "mission_failed": false,
+          "failure_reason": ""
+        },
+        "outcome": {
+          "winner": "Crew",
+          "mission_failed": false,
+          "failure_reason": "",
+          "successful_rounds": 3,
+          "sabotage_used": true,
+          "roles": [
+            {
+              "seat": 0,
+              "role": "Informant"
+            },
+            {
+              "seat": 1,
+              "role": "Driver"
+            },
+            {
+              "seat": 2,
+              "role": "Inside Agent"
+            },
+            {
+              "seat": 3,
+              "role": "Security Specialist"
+            }
+          ],
+          "history": [
+            {
+              "round": 1,
+              "plan_title": "Ghost the Service Hall",
+              "success": true,
+              "score": 85
+            },
+            {
+              "round": 2,
+              "plan_title": "Work the VIP Crowd",
+              "success": true,
+              "score": 80
+            },
+            {
+              "round": 3,
+              "plan_title": "Take the Rooftop Route",
+              "success": true,
+              "score": 80
+            }
+          ],
+          "accusation": {
+            "totals": [
+              3,
+              0,
+              0,
+              0
+            ],
+            "tied": false,
+            "accused_seat": 0
+          }
+        },
+        "notice": null
+      }
+    },
+    "cooperative_voting_seat_offline": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 11,
+        "phase": "voting",
+        "mode": "cooperative",
+        "round": 1,
+        "total_rounds": 3,
+        "meters": {
+          "time": 12,
+          "max_time": 12,
+          "suspicion": 1,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 7,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "ghost",
+            "title": "Ghost the Service Hall",
+            "description": "Slip through staff corridors while the expo changes shifts.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "spoof",
+            "title": "Spoof a Vendor Badge",
+            "description": "Clone credentials and walk through the front checkpoint.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "blackout",
+            "title": "Stage a Blackout",
+            "description": "Cut local power and move under emergency lighting.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": false,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 3
+        },
+        "last_result": null,
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "cooperative_resolution_failed": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 31,
+        "phase": "resolution",
+        "mode": "cooperative",
+        "round": 3,
+        "total_rounds": 3,
+        "meters": {
+          "time": 9,
+          "max_time": 12,
+          "suspicion": 7,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 0,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "freight",
+            "title": "Escape via Freight Lift",
+            "description": "Move the prototype inside a sealed equipment case.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "rooftop",
+            "title": "Take the Rooftop Route",
+            "description": "Climb above the patrol grid and cross to the parking tower.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "motorcade",
+            "title": "Bluff the Motorcade",
+            "description": "Spend the last favors on an official-looking extraction.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 3
+        },
+        "last_result": {
+          "round": 3,
+          "plan_id": "motorcade",
+          "plan_title": "Bluff the Motorcade",
+          "tallies": {
+            "freight": 0,
+            "rooftop": 0,
+            "motorcade": 3
+          },
+          "was_tie": false,
+          "score": 40,
+          "success": false,
+          "sabotage_applied": false,
+          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost.",
+          "mission_failed": true,
+          "failure_reason": "Security identified the crew."
+        },
+        "outcome": null,
+        "notice": null
+      }
+    },
+    "cooperative_finished_no_accusation": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 34,
+        "phase": "finished",
+        "mode": "cooperative",
+        "round": 3,
+        "total_rounds": 3,
+        "meters": {
+          "time": 9,
+          "max_time": 12,
+          "suspicion": 7,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 0,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "freight",
+            "title": "Escape via Freight Lift",
+            "description": "Move the prototype inside a sealed equipment case.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "rooftop",
+            "title": "Take the Rooftop Route",
+            "description": "Climb above the patrol grid and cross to the parking tower.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "motorcade",
+            "title": "Bluff the Motorcade",
+            "description": "Spend the last favors on an official-looking extraction.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 0
+        },
+        "last_result": {
+          "round": 3,
+          "plan_id": "motorcade",
+          "plan_title": "Bluff the Motorcade",
+          "tallies": {
+            "freight": 0,
+            "rooftop": 0,
+            "motorcade": 3
+          },
+          "was_tie": false,
+          "score": 40,
+          "success": false,
+          "sabotage_applied": false,
+          "consequence": "Bluff the Motorcade breaks down under pressure. Security closes in and an extra resource is lost.",
+          "mission_failed": true,
+          "failure_reason": "Security identified the crew."
+        },
+        "outcome": {
+          "winner": "Nobody",
+          "mission_failed": true,
+          "failure_reason": "Security identified the crew.",
+          "successful_rounds": 2,
+          "sabotage_used": false,
+          "roles": [
+            {
+              "seat": 0,
+              "role": "Hacker"
+            },
+            {
+              "seat": 1,
+              "role": "Driver"
+            },
+            {
+              "seat": 2,
+              "role": "Inside Agent"
+            }
+          ],
+          "history": [
+            {
+              "round": 1,
+              "plan_title": "Stage a Blackout",
+              "success": true,
+              "score": 95
+            },
+            {
+              "round": 2,
+              "plan_title": "Trigger a Decoy Alarm",
+              "success": true,
+              "score": 80
+            },
+            {
+              "round": 3,
+              "plan_title": "Bluff the Motorcade",
+              "success": false,
+              "score": 40
+            }
+          ],
+          "accusation": null
+        },
+        "notice": null
+      }
+    },
+    "abandoned": {
+      "version": 1,
+      "type": "match_snapshot",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 2,
+        "phase": "abandoned",
+        "mode": "cooperative",
+        "round": 1,
+        "total_rounds": 3,
+        "meters": {
+          "time": 12,
+          "max_time": 12,
+          "suspicion": 1,
+          "max_suspicion": 10,
+          "failure_suspicion": 7,
+          "resources": 7,
+          "max_resources": 8
+        },
+        "mission": {
+          "title": "The Neon Vault",
+          "objective": "Recover a stolen prototype from a private technology expo.",
+          "complication": "Security changes its patrol pattern every sixty seconds."
+        },
+        "plans": [
+          {
+            "id": "ghost",
+            "title": "Ghost the Service Hall",
+            "description": "Slip through staff corridors while the expo changes shifts.",
+            "time_cost": 3,
+            "resource_cost": 1,
+            "risk": 1
+          },
+          {
+            "id": "spoof",
+            "title": "Spoof a Vendor Badge",
+            "description": "Clone credentials and walk through the front checkpoint.",
+            "time_cost": 2,
+            "resource_cost": 2,
+            "risk": 2
+          },
+          {
+            "id": "blackout",
+            "title": "Stage a Blackout",
+            "description": "Cut local power and move under emergency lighting.",
+            "time_cost": 1,
+            "resource_cost": 3,
+            "risk": 3
+          }
+        ],
+        "seats": [
+          {
+            "seat": 0,
+            "name": "Ada",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 1,
+            "name": "Ben",
+            "connected": true,
+            "ready": false,
+            "acted": false
+          },
+          {
+            "seat": 2,
+            "name": "Cy",
+            "connected": false,
+            "ready": false,
+            "acted": false
+          }
+        ],
+        "progress": {
+          "done": 0,
+          "needed": 0
+        },
+        "last_result": null,
+        "outcome": null,
+        "notice": "The heist was called off because Cy left the room."
+      }
+    }
+  },
+  "valid_private": {
+    "informant": {
+      "version": 1,
+      "type": "match_private",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 1,
+        "seat": 0,
+        "role": "Informant",
+        "ability": "Secretly increase suspicion while appearing to help the crew.",
+        "sabotage_available": false,
+        "vote": null,
+        "accusation": null
+      }
+    },
+    "crew": {
+      "version": 1,
+      "type": "match_private",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 1,
+        "seat": 1,
+        "role": "Driver",
+        "ability": "Once per match, cancel a failed escape consequence.",
+        "sabotage_available": false,
+        "vote": null,
+        "accusation": null
+      }
+    },
+    "informant_voted": {
+      "version": 1,
+      "type": "match_private",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 14,
+        "seat": 0,
+        "role": "Informant",
+        "ability": "Secretly increase suspicion while appearing to help the crew.",
+        "sabotage_available": false,
+        "vote": "ghost",
+        "accusation": null
+      }
+    },
+    "crew_accused": {
+      "version": 1,
+      "type": "match_private",
+      "request_id": null,
+      "payload": {
+        "room_code": "ABC234",
+        "revision": 46,
+        "seat": 1,
+        "role": "Driver",
+        "ability": "Once per match, cancel a failed escape consequence.",
+        "sabotage_available": false,
+        "vote": null,
+        "accusation": 0
+      }
+    }
+  }
+}
