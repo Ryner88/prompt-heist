@@ -188,6 +188,23 @@ func _test_match_progression_and_abandonment() -> void:
 	finished.payload.revision = 101
 	fixture.client.ingest_server_text(JSON.stringify(finished), generation)
 	_check(fixture.flow.state == FlowScript.State.MATCH and fixture.flow.match_snapshot.outcome.winner == "Crew", "A recovered seat in a finished room shows the recap")
+	_check(fixture.flow.ready_current_step(), "Players can ask to return to the waiting room from the recap")
+	var return_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	_check(return_request.type == "ready" and return_request.payload.phase == "finished" and int(return_request.payload.round) == 3, "Returning acknowledges the finished recap")
+	fixture.client.ingest_server_text(_match_result(return_request.request_id, "ready"), generation)
+	var pending_return: Dictionary = contract.valid_public.social_finished_rematch_pending.duplicate(true)
+	pending_return.payload.revision = 102
+	fixture.client.ingest_server_text(JSON.stringify(pending_return), generation)
+	_check(fixture.flow.state == FlowScript.State.MATCH and fixture.flow.match_snapshot.progress.done == 1, "The recap stays open until everyone has returned")
+	var closed: Dictionary = contract.valid_public.closed.duplicate(true)
+	closed.payload.revision = 103
+	fixture.client.ingest_server_text(JSON.stringify(closed), generation)
+	_check(fixture.flow.state == FlowScript.State.LOBBY and fixture.flow.match_snapshot.is_empty(), "A closed heist returns everyone to the waiting room")
+	_check(fixture.flow.feedback.contains("waiting room"), "Players learn the room is open again")
+	_check(fixture.flow.can_start_match(), "A new heist can start from the reopened room")
+
+	finished.payload.revision = 104
+	fixture.client.ingest_server_text(JSON.stringify(finished), generation)
 	fixture.flow.leave_lobby()
 	_check(fixture.flow.state == FlowScript.State.LEAVING, "Players can leave from the heist screens")
 

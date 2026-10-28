@@ -101,7 +101,7 @@ func can_act() -> bool:
 	return state == State.MATCH and not match_snapshot.is_empty() and not client.has_pending_request()
 
 func ready_current_step() -> bool:
-	if not can_act() or not Protocol.PACING_PHASES.has(match_snapshot.phase) or is_ready():
+	if not can_act() or not Protocol.READY_PHASES.has(match_snapshot.phase) or is_ready():
 		return false
 	_set_feedback("")
 	return client.ready_step(match_snapshot.phase, match_snapshot.round)
@@ -173,7 +173,7 @@ func _on_snapshot(snapshot: Dictionary) -> void:
 func _on_match_snapshot(snapshot: Dictionary) -> void:
 	if state != State.LOBBY and state != State.MATCH:
 		return
-	if snapshot.phase == "abandoned":
+	if Protocol.ROOM_RETURN_PHASES.has(snapshot.phase):
 		var was_playing := state == State.MATCH
 		_clear_match()
 		if was_playing:

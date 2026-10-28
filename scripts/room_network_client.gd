@@ -130,7 +130,7 @@ func start_match() -> bool:
 	return _send_command("start_match", {})
 
 func ready_step(phase: String, round_number: int) -> bool:
-	if active_room_code.is_empty() or not Protocol.PACING_PHASES.has(phase):
+	if active_room_code.is_empty() or not Protocol.READY_PHASES.has(phase):
 		return false
 	return _send_command("ready", {"phase": phase, "round": round_number})
 

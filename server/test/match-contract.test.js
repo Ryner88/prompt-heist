@@ -63,6 +63,10 @@ function buildContract() {
   social.matchAction("c", (match, player) => match.accuse(player, 0));
   social.matchAction("d", (match, player) => match.accuse(player, 0));
   capture(social, "social_finished_crew_wins");
+  assert.equal(social.matchAction("b", (match, player) => match.ready(player, "finished", 3)).ok, true);
+  capture(social, "social_finished_rematch_pending");
+  ready(social, ["a", "c", "d"], "finished", 3);
+  capture(social, "closed");
 
   const cooperative = makeRegistry();
   const three = seats(3, cooperative);
@@ -104,4 +108,6 @@ test("checked-in match contract fixtures equal the payloads the server sends", (
   assert.equal(contract.valid_public.cooperative_finished_no_accusation.payload.outcome.winner, "Nobody");
   assert.equal(contract.valid_public.cooperative_resolution_failed.payload.last_result.mission_failed, true);
   assert.equal(contract.valid_public.social_finished_crew_wins.payload.outcome.winner, "Crew");
+  assert.deepEqual(contract.valid_public.social_finished_rematch_pending.payload.progress, { done: 1, needed: 4 });
+  assert.equal(contract.valid_public.closed.payload.phase, "closed");
 });

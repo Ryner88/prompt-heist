@@ -83,6 +83,17 @@ func _run() -> void:
 	_check(recap.outcome.successful_rounds == 3 and recap.outcome.accusation == null, "Cooperative recaps skip the accusation")
 	for client in clients:
 		_check(_snapshot(client) == recap, "Every client should show an identical recap")
+
+	for client in clients:
+		_check(client.ready_step("finished", 3), "Each client should ask to return to the waiting room")
+		await _wait_until(func() -> bool: return not client.has_pending_request())
+	if not await _wait_until(func() -> bool: return clients.all(func(client: Node) -> bool: return _phase(client) == "closed")):
+		await _finish("The finished heist should close once everyone returns")
+		return
+	_check(ben.start_match(), "The reopened room should start a second heist")
+	if not await _wait_until(func() -> bool: return clients.all(func(client: Node) -> bool: return _phase(client) == "role_reveal" and int(_snapshot(client).meters.time) == 12)):
+		await _finish("Every client should enter a fresh second heist")
+		return
 	await _finish("")
 
 func _everyone_ready(phase: String, round_number: int) -> bool:
@@ -144,5 +155,5 @@ func _finish(failure: String) -> void:
 	for _index in 3:
 		await process_frame
 	if failures.is_empty():
-		print("Godot/Node heist integration passed: start, private roles, readiness, three voting rounds, identical recap")
+		print("Godot/Node heist integration passed: start, private roles, readiness, three voting rounds, identical recap, play again")
 	quit(1 if not failures.is_empty() else 0)

@@ -34,11 +34,11 @@ The current prototype supports a complete three-round local pass-and-play missio
 
 ## Online heists
 
-Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage and every vote stay hidden until the round resolves. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role and the current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
+Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage and every vote stay hidden until the round resolves. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role and the current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. After the recap, once everyone still in the room chooses **Back to the waiting room**, the room reopens with the same code for new players and another heist with fresh roles. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
 
 ## Next milestone
 
-Play Again for finished rooms, the mobile and error-state pass, then public deployment and release validation.
+The mobile and error-state pass, then public deployment and release validation.
 
 ## Authoritative room service
 

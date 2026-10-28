@@ -398,13 +398,15 @@ func _add_online_presence(snapshot: Dictionary) -> void:
 	var phase: String = snapshot.phase
 	var progress: Dictionary = snapshot.progress
 	var lines: Array[String] = []
-	if RoomProtocolScript.PACING_PHASES.has(phase) or phase == "voting":
+	if RoomProtocolScript.READY_PHASES.has(phase) or phase == "voting":
 		var waiting: Array[String] = []
 		for seat in snapshot.seats:
 			var done: bool = seat.ready if phase != "voting" else seat.acted
 			if not done:
 				waiting.append(seat.name)
 		var verb := "voted" if phase == "voting" else "ready"
+		if phase == "finished":
+			verb = "back to the waiting room"
 		lines.append("%d of %d %s%s" % [progress.done, progress.needed, verb, "" if waiting.is_empty() else " • waiting for " + ", ".join(waiting)])
 	elif phase == "accusation":
 		lines.append("%d of %d accusations cast" % [progress.done, progress.needed])
@@ -582,6 +584,7 @@ func _show_online_recap(snapshot: Dictionary) -> void:
 		else:
 			lines.append("Accused: %s" % snapshot.seats[int(accusation.accused_seat)].name)
 	_online_text("\n".join(lines), Color("e6ebf2"), 15)
+	_add_ready_button("Back to the waiting room")
 
 func _show_lobby() -> void:
 	_clear_content()

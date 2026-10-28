@@ -33,8 +33,12 @@ const ERROR_MESSAGES := {
 	"invalid_suspect": "Choose another player to accuse.",
 }
 
-const MATCH_PHASES := ["role_reveal", "briefing", "planning", "voting", "resolution", "accusation", "finished", "abandoned"]
+const MATCH_PHASES := ["role_reveal", "briefing", "planning", "voting", "resolution", "accusation", "finished", "abandoned", "closed"]
 const PACING_PHASES := ["role_reveal", "briefing", "planning", "resolution"]
+## Steps a player acknowledges with `ready`; "finished" asks to return to the waiting room.
+const READY_PHASES := ["role_reveal", "briefing", "planning", "resolution", "finished"]
+## Terminal notices that return players to the waiting room.
+const ROOM_RETURN_PHASES := ["abandoned", "closed"]
 const MATCH_SNAPSHOT_KEYS := ["room_code", "revision", "phase", "mode", "round", "total_rounds", "meters", "mission", "plans", "seats", "progress", "last_result", "outcome", "notice"]
 const MATCH_PRIVATE_KEYS := ["room_code", "revision", "seat", "role", "ability", "sabotage_available", "vote", "accusation"]
 const METER_KEYS := ["time", "max_time", "suspicion", "max_suspicion", "failure_suspicion", "resources", "max_resources"]
@@ -206,7 +210,7 @@ static func validate_match_snapshot(payload: Variant) -> bool:
 			return false
 	elif payload.outcome != null:
 		return false
-	if payload.phase == "abandoned":
+	if ROOM_RETURN_PHASES.has(payload.phase):
 		return payload.notice is String and not payload.notice.is_empty()
 	return payload.notice == null
 

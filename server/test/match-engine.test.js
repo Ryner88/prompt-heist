@@ -271,3 +271,35 @@ test("abandoning ends only an unfinished match and keeps roles secret", () => {
   assert.equal(finished.abandon("Player 1"), false, "A finished recap is preserved");
   assert.equal(finished.phase, "finished");
 });
+
+test("after the recap, the match closes once every remaining seat asks to return", () => {
+  const match = votingMatch(4);
+  assert.equal(match.ready("p1", "finished", 1).code, "stale_action", "Returning is only possible from the recap");
+  playRounds(match, ["ghost", "social", "rooftop"]);
+  for (const seat of [1, 2, 3]) match.accuse(`p${seat}`, 0);
+  assert.equal(match.phase, "finished");
+  assert.equal(match.holdsRoom, true);
+  const everyone = new Set(["p0", "p1", "p2", "p3"]);
+  assert.deepEqual(match.ready("p1", "finished", 3), { ok: true, changed: true });
+  assert.deepEqual(match.ready("p1", "finished", 3), { ok: true, changed: false });
+  assert.equal(match.closeIfReady(everyone), false);
+  const pending = match.publicView({ presentPlayerIds: everyone });
+  assert.deepEqual(pending.progress, { done: 1, needed: 4 });
+  assert.deepEqual(pending.seats.map((seat) => seat.ready), [false, true, false, false]);
+  assert.equal(pending.outcome.winner, "Crew", "The recap stays visible while others finish reading");
+
+  match.ready("p2", "finished", 3);
+  const remaining = new Set(["p1", "p2", "p3"]);
+  assert.deepEqual(match.publicView({ presentPlayerIds: remaining }).progress, { done: 2, needed: 3 },
+    "Seats that left do not count toward the return");
+  match.ready("p3", "finished", 3);
+  assert.equal(match.closeIfReady(remaining), true);
+  assert.equal(match.phase, "closed");
+  assert.equal(match.holdsRoom, false);
+  const closed = match.publicView({ presentPlayerIds: remaining });
+  assert.equal(closed.outcome, null, "Closing clears the recap");
+  assert.match(closed.notice, /back in the waiting room/);
+  assert.equal(match.ready("p1", "finished", 3).code, "stale_action");
+  assert.equal(match.closeIfReady(remaining), false);
+  assert.equal(match.abandon("Player 2"), false, "A closed match cannot be abandoned");
+});

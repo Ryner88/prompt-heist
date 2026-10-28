@@ -294,3 +294,58 @@ test("periodic rebroadcast repairs a missed match update for each member", async
   ]);
   assert.equal(repeatedPublic.payload.revision, repeatedPrivate.payload.revision);
 });
+
+async function playToRecap(clients) {
+  await everyoneReady(clients, "role_reveal", 1);
+  await everyoneReady(clients, "briefing", 1);
+  for (const [round, plan] of [[1, "ghost"], [2, "social"], [3, "rooftop"]]) {
+    await everyoneReady(clients, "planning", round);
+    await allVote(clients, round, plan);
+    await everyoneReady(clients, "resolution", round);
+  }
+}
+
+test("Play Again returns the room to waiting once everyone remaining leaves the recap", async (t) => {
+  const { clients, roomCode, server } = await gameRoom(t, 4);
+  const [ada, ben, cy, dee] = clients;
+  await send(ada, "start_match");
+  await Promise.all(clients.map((client) => latest(client, "match_private")));
+  await playToRecap(clients);
+  for (const client of [ben, cy, dee]) await send(client, "accuse", { suspect_seat: 0 });
+  const recap = await latest(dee, "match_snapshot", phaseIs("finished"));
+  assert.deepEqual(recap.payload.progress, { done: 0, needed: 4 });
+
+  const late = await connectClient(server.websocketUrl);
+  t.after(() => late.close());
+  late.send(command("join_room", "late", { room_code: roomCode, display_name: "Eli", ...CAPABILITIES }));
+  assert.equal((await late.next((message) => message.request_id === "late")).payload.code, "match_in_progress",
+    "Nobody joins while the recap is open");
+  assert.equal((await send(ben, "start_match")).payload.code, "match_in_progress");
+  assert.equal((await send(ben, "ready", { phase: "finished", round: 2 })).payload.code, "stale_action");
+
+  assert.equal((await send(ben, "ready", { phase: "finished", round: 3 })).type, "command_result");
+  await latest(ada, "match_snapshot", phaseIs("finished", (payload) => payload.progress.done === 1 && payload.seats[1].ready));
+  assert.equal((await send(cy, "leave_room")).type, "command_result");
+  const afterLeave = await latest(ada, "match_snapshot", phaseIs("finished", (payload) => payload.progress.needed === 3));
+  assert.equal(afterLeave.payload.outcome.winner, "Crew", "A departure after the recap does not abandon it");
+  await send(dee, "ready", { phase: "finished", round: 3 });
+  await send(ada, "ready", { phase: "finished", round: 3 });
+  const closed = await Promise.all([ada, ben, dee].map((client) => latest(client, "match_snapshot", phaseIs("closed"))));
+  for (const view of closed) {
+    assert.equal(view.payload.outcome, null);
+    assert.match(view.payload.notice, /back in the waiting room/);
+  }
+
+  late.send(command("join_room", "late-2", { room_code: roomCode, display_name: "Eli", ...CAPABILITIES }));
+  assert.equal((await late.next((message) => message.request_id === "late-2")).type, "command_result");
+  await latest(ada, "room_snapshot", (payload) => payload.player_names.includes("Eli"));
+  assert.equal((await send(dee, "start_match")).type, "command_result");
+  const fresh = await Promise.all([ada, ben, dee, late].map((client) => latest(client, "match_snapshot",
+    phaseIs("role_reveal", (payload) => payload.revision > closed[0].payload.revision))));
+  assert.deepEqual(fresh[0].payload.seats.map((seat) => seat.name), ["Ada", "Ben", "Dee", "Eli"]);
+  assert.deepEqual(fresh[0].payload.meters.time, 12, "A new heist starts from fresh meters");
+  assert.equal(fresh[0].payload.last_result, null);
+  const secondPrivate = await latest(late, "match_private", (payload) => payload.revision === fresh[0].payload.revision);
+  assert.equal(secondPrivate.payload.seat, 3);
+  assert.equal(secondPrivate.payload.vote, null);
+});

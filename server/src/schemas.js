@@ -6,7 +6,7 @@ import {
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
 } from "./constants.js";
-import { PACING_PHASES, TOTAL_ROUNDS } from "./match-engine.js";
+import { READY_PHASES, TOTAL_ROUNDS } from "./match-engine.js";
 
 const requestId = {
   type: "string",
@@ -90,7 +90,7 @@ export const clientMessageSchemas = {
     type: "object",
     additionalProperties: false,
     required: ["phase", "round"],
-    properties: { phase: { enum: PACING_PHASES }, round },
+    properties: { phase: { enum: READY_PHASES }, round },
   }),
   cast_vote: envelope("cast_vote", {
     type: "object",

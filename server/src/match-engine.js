@@ -16,6 +16,8 @@ export const SUCCESS_THRESHOLD = 70;
 export const REQUIRED_SUCCESSES = 2;
 
 export const PACING_PHASES = ["role_reveal", "briefing", "planning", "resolution"];
+/** Steps a seat acknowledges with `ready`; "finished" asks to return to the waiting room. */
+export const READY_PHASES = [...PACING_PHASES, "finished"];
 
 export const MISSION = Object.freeze({
   title: "The Neon Vault",
@@ -118,7 +120,26 @@ export class HeistMatch {
 
   /** A match that is still being played; finished and abandoned matches only hold a recap. */
   get active() {
-    return this.phase !== "finished" && this.phase !== "abandoned";
+    return this.phase !== "finished" && this.phase !== "abandoned" && this.phase !== "closed";
+  }
+
+  /** Whether the room still belongs to this match: it is being played or its recap is open. */
+  get holdsRoom() {
+    return this.active || this.phase === "finished";
+  }
+
+  /**
+   * Closes a finished match once every seat still in the room has asked to
+   * return to the waiting room. Seats that already left do not block it.
+   */
+  closeIfReady(presentPlayerIds) {
+    if (this.phase !== "finished") return false;
+    const present = this.#seats.filter((seat) => presentPlayerIds.has(seat.playerId));
+    if (present.length > 0 && !present.every((seat) => this.#ready.has(seat.seat))) return false;
+    this.phase = "closed";
+    this.notice = "The crew is back in the waiting room.";
+    this.#ready.clear();
+    return true;
   }
 
   /**
@@ -151,11 +172,11 @@ export class HeistMatch {
   ready(playerId, phase, round) {
     const seat = this.seatFor(playerId);
     if (!seat) return failure("not_in_match");
-    if (!PACING_PHASES.includes(this.phase)) return failure("stale_action");
+    if (!READY_PHASES.includes(this.phase)) return failure("stale_action");
     if (phase !== this.phase || round !== this.round) return failure("stale_action");
     if (this.#ready.has(seat.seat)) return { ok: true, changed: false };
     this.#ready.add(seat.seat);
-    if (this.#ready.size === this.#seats.length) this.#advancePacing();
+    if (this.phase !== "finished" && this.#ready.size === this.#seats.length) this.#advancePacing();
     return { ok: true, changed: true };
   }
 
@@ -191,7 +212,7 @@ export class HeistMatch {
   }
 
   /** Public view shared with every member. Contains no roles until the match is finished. */
-  publicView({ connectedPlayerIds = null } = {}) {
+  publicView({ connectedPlayerIds = null, presentPlayerIds = null } = {}) {
     return {
       phase: this.phase,
       mode: this.mode,
@@ -212,12 +233,12 @@ export class HeistMatch {
         seat: seat.seat,
         name: seat.name,
         connected: connectedPlayerIds ? connectedPlayerIds.has(seat.playerId) : true,
-        ready: PACING_PHASES.includes(this.phase) && this.#ready.has(seat.seat),
+        ready: READY_PHASES.includes(this.phase) && this.#ready.has(seat.seat),
         // Per-seat accusation progress would single out the Informant, who
         // cannot vote, so that phase reports only the aggregate below.
         acted: this.phase === "voting" && this.#votes.has(seat.seat),
       })),
-      progress: this.#progress(),
+      progress: this.#progress(presentPlayerIds),
       last_result: this.lastResult ? structuredClone(this.lastResult) : null,
       outcome: this.finished ? this.#outcome() : null,
       notice: this.notice,
@@ -239,8 +260,12 @@ export class HeistMatch {
     };
   }
 
-  #progress() {
+  #progress(presentPlayerIds) {
     if (PACING_PHASES.includes(this.phase)) return { done: this.#ready.size, needed: this.#seats.length };
+    if (this.phase === "finished") {
+      const present = presentPlayerIds ? this.#seats.filter((seat) => presentPlayerIds.has(seat.playerId)) : this.#seats;
+      return { done: present.filter((seat) => this.#ready.has(seat.seat)).length, needed: present.length };
+    }
     if (this.phase === "voting") return { done: this.#votes.size, needed: this.#seats.length };
     if (this.phase === "accusation") return { done: this.#accusations.size, needed: this.#seats.length - 1 };
     return { done: 0, needed: 0 };

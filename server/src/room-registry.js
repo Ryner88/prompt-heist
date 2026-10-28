@@ -69,7 +69,7 @@ export class RoomRegistry {
     const code = String(roomCode).trim().toUpperCase();
     const room = this.#rooms.get(code);
     if (!isValidRoomCode(code) || !room) return failure("unknown_room");
-    if (room.match && room.match.phase !== "abandoned") return failure("match_in_progress");
+    if (room.match?.holdsRoom) return failure("match_in_progress");
 
     const normalized = normalizeName(displayName);
     const nameError = validateName(normalized);
@@ -151,7 +151,7 @@ export class RoomRegistry {
     const player = this.#sessions.get(connectionId);
     if (!player || player.connectionId !== connectionId) return failure("not_in_room");
     const room = this.#rooms.get(player.roomCode);
-    if (room.match && room.match.phase !== "abandoned") return failure("match_in_progress");
+    if (room.match?.holdsRoom) return failure("match_in_progress");
     if (room.players.length < MIN_MATCH_PLAYERS) return failure("not_enough_players");
     if (room.players.some((member) => !member.connectionId)) return failure("players_disconnected");
     if (room.players.some((member) => !member.game)) return failure("incompatible_client");
@@ -173,11 +173,14 @@ export class RoomRegistry {
     const player = this.#sessions.get(connectionId);
     if (!player || player.connectionId !== connectionId) return failure("not_in_room");
     const room = this.#rooms.get(player.roomCode);
-    if (!room.match || !room.match.active) return failure("no_active_match");
+    if (!room.match?.holdsRoom) return failure("no_active_match");
     if (!room.match.hasPlayer(player.playerId)) return failure("not_in_match");
     const result = action(room.match, player.playerId);
     if (!result.ok) return failure(result.code);
-    if (result.changed) room.matchRevision += 1;
+    if (result.changed) {
+      room.match.closeIfReady(this.#presentPlayerIds(room));
+      room.matchRevision += 1;
+    }
     return { ok: true, roomCode: room.roomCode, changed: result.changed };
   }
 
@@ -188,7 +191,7 @@ export class RoomRegistry {
     return {
       room_code: room.roomCode,
       revision: room.matchRevision,
-      ...room.match.publicView({ connectedPlayerIds: connected }),
+      ...room.match.publicView({ connectedPlayerIds: connected, presentPlayerIds: this.#presentPlayerIds(room) }),
     };
   }
 
@@ -250,6 +253,10 @@ export class RoomRegistry {
     return [...this.#rooms.keys()];
   }
 
+  #presentPlayerIds(room) {
+    return new Set(room.players.map((member) => member.playerId));
+  }
+
   #makePlayer(displayName, connectionId, roomCode, reconnectable, sync, game) {
     const player = {
       playerId: this.#idGenerator(),
@@ -288,8 +295,13 @@ export class RoomRegistry {
       this.#rooms.delete(player.roomCode);
     } else {
       room.revision += 1;
-      // A permanently lost seat cannot be replaced mid-heist.
-      if (room.match?.hasPlayer(player.playerId) && room.match.abandon(player.displayName)) room.matchRevision += 1;
+      if (room.match?.hasPlayer(player.playerId)) {
+        // A lost seat cannot be replaced mid-heist, so it abandons a match in
+        // play. After the recap, it may complete everyone else's return to
+        // the waiting room. Either way the public seat list changed.
+        if (!room.match.abandon(player.displayName)) room.match.closeIfReady(this.#presentPlayerIds(room));
+        room.matchRevision += 1;
+      }
     }
     return { roomCode: player.roomCode, snapshot: this.publicSnapshot(player.roomCode) };
   }

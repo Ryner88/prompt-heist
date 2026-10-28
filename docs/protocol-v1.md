@@ -79,8 +79,9 @@ Every heist command is answered with a private `command_result` whose payload is
 {"version":1,"type":"accuse","request_id":"a1","payload":{"suspect_seat":2}}
 ```
 
-- `start_match` requires three or four seats, all connected and game-capable, and no unfinished or finished match in the room. Any seated member may start. Three seats play cooperatively; four seats include one hidden Informant.
+- `start_match` requires three or four seats, all connected and game-capable, and no heist in play or recap open in the room. Any seated member may start. Three seats play cooperatively; four seats include one hidden Informant.
 - `ready` acknowledges one pacing step: `role_reveal`, `briefing`, `planning`, or `resolution`. The step advances when every seat is ready. Repeating readiness for the current step is accepted without change.
+- `ready` with phase `finished` asks to leave the recap (Play Again). When every seat still in the room has asked, the match becomes `closed`: the recap and all private match state are cleared, and the room accepts joins and a new `start_match` with the same room code and seats. Seats that left after the recap do not block the return.
 - `cast_vote` is accepted once per seat per round. `sabotage:true` is accepted only from the Informant, once per match, together with that seat's vote. The round resolves when every seat has voted.
 - `accuse` is accepted once per crew seat during the accusation. The Informant cannot vote and no seat can accuse itself. The match finishes when every crew seat has voted; a tie identifies nobody.
 - Every action names its phase or round. An action for a step that has already passed is rejected with `stale_action` and changes nothing.
@@ -118,7 +119,7 @@ For a client using `"sync":true`, the same snapshot also contains `"revision":1`
 
 Room snapshots never contain roles, sabotage choices, votes before reveal, session or reconnect tokens, connection IDs, or server-only game state.
 
-`match_snapshot` is broadcast to every game-capable member. Every member receives the same payload. It contains `room_code`, `revision`, `phase`, `mode` (`cooperative` or `social`), `round`, `total_rounds`, `meters`, `mission`, the current round's `plans` (without hidden success values), `seats`, `progress`, `last_result`, `outcome`, and `notice`. Seats are `{seat, name, connected, ready, acted}` in fixed match order; `acted` reports votes during voting only. During the accusation only the aggregate `progress` count is published, because a per-seat flag would identify the non-voting Informant. `outcome`, with revealed roles, round history, and accusation totals, is present only when `phase` is `finished`. When a seat is permanently lost before the end, `phase` becomes `abandoned`, `notice` explains who left, roles stay hidden, and the room accepts joins and a new start again. `tests/fixtures/match_contract.json` contains real examples of every phase.
+`match_snapshot` is broadcast to every game-capable member. Every member receives the same payload. It contains `room_code`, `revision`, `phase`, `mode` (`cooperative` or `social`), `round`, `total_rounds`, `meters`, `mission`, the current round's `plans` (without hidden success values), `seats`, `progress`, `last_result`, `outcome`, and `notice`. Seats are `{seat, name, connected, ready, acted}` in fixed match order; `acted` reports votes during voting only. During the accusation only the aggregate `progress` count is published, because a per-seat flag would identify the non-voting Informant. `outcome`, with revealed roles, round history, and accusation totals, is present only when `phase` is `finished`. When a seat is permanently lost before the end, `phase` becomes `abandoned`, `notice` explains who left, roles stay hidden, and the room accepts joins and a new start again. After everyone returns from the recap, `phase` becomes `closed` with a `notice` and no outcome. Clients treat both `abandoned` and `closed` as a return to the waiting room. During the recap, `ready` and `progress` report the return to the waiting room, counting only seats still in the room. `tests/fixtures/match_contract.json` contains real examples of every phase.
 
 `match_private` is sent only to the seat's own bound connection: `room_code`, `revision`, `seat`, `role`, `ability`, `sabotage_available`, and that seat's own `vote` and `accusation` for the current step.
 
@@ -155,7 +156,7 @@ Errors use the versioned envelope and echo a valid request ID when available:
 | `invalid_reconnect` | The token is invalid, expired, consumed, or belongs to another room. |
 | `not_in_room` | The connection has no seat to leave. |
 | `reconnect_token_unavailable` | Secure token generation exhausted its collision retries; no session change was applied. |
-| `match_in_progress` | The room's heist has started or finished; joins and a second start are rejected. |
+| `match_in_progress` | A heist is in play or its recap is open; joins and a second start are rejected. |
 | `not_enough_players` | Fewer than three seats are present. |
 | `players_disconnected` | A seat is reserved but not connected, so the heist cannot start. |
 | `incompatible_client` | A seat did not negotiate `game:true`. |
