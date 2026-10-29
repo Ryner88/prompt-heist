@@ -1,5 +1,7 @@
 # Public release preflight, 2026-10-29
 
+The later [public release acceptance record](public-release-2026-10-29.md) covers the deployed HTTPS/WSS game and four-browser run. The results below document the earlier local preflight.
+
 ## Scope
 
 The four-player browser run used the CI Web export from release commit `b72179d` (Verify run `40783422273`) and the local Node authority at `http://127.0.0.1:3000/` and `ws://127.0.0.1:3000/ws`. Four independent Chromium contexts represented Ada and Ben at 1280×720 and Cy and Dee at a 390×844 emulated phone viewport with touch input. This is a local check, not a public HTTPS/WSS or physical-device acceptance result.

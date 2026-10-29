@@ -40,7 +40,7 @@ Three or four players in an online room can play the complete heist from separat
 
 ## Release validation
 
-The remaining gate is a public HTTPS/WSS deployment and a four-player browser check on that deployment.
+Play the public game at [prompt-heist-pni7.onrender.com](https://prompt-heist-pni7.onrender.com/). The [public acceptance record](docs/acceptance/public-release-2026-10-29.md) covers HTTPS, WSS, a complete four-browser match, reconnect, Play Again, a room-code invite link, and rejected actions. Phone-sized checks used Chromium touch emulation; a physical phone and a second browser engine remain to be checked.
 
 ## Authoritative room service
 
