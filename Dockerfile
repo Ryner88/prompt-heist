@@ -1,7 +1,7 @@
 FROM ubuntu:24.04 AS web-build
 
 ARG GODOT_VERSION=4.7.2
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 RUN curl --fail --location --output /tmp/godot.zip \
       "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \

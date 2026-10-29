@@ -13,6 +13,14 @@ import { decodeClientMessage, errorResponse, recoverRequestId, response } from "
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry } from "./room-registry.js";
 
+function requestPath(rawUrl) {
+  try {
+    return new URL(rawUrl ?? "/", "http://localhost").pathname;
+  } catch {
+    return null;
+  }
+}
+
 export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger,
   sweepIntervalMs = 1_000, staticDir = process.env.STATIC_DIR ?? null } = {}) {
   const connections = new Map();
@@ -38,8 +46,8 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       return;
     }
     if (staticDir && (request.method === "GET" || request.method === "HEAD")) {
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-      const asset = pathname === "/" ? "index.html" : pathname.slice(1);
+      const pathname = requestPath(request.url);
+      const asset = pathname === "/" ? "index.html" : pathname?.slice(1) ?? "";
       if (/^index(?:\.[A-Za-z0-9_-]+)*\.(?:html|js|wasm|pck|png|ico)$/.test(asset)) {
         const file = join(staticDir, asset);
         try {
@@ -65,7 +73,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
 
   httpServer.on("upgrade", (request, socket, head) => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    const path = requestPath(request.url);
     if (shuttingDown || path !== WEBSOCKET_PATH) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
