@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: prompt-heist-ryner88
+    runtime: docker
+    repo: https://github.com/Ryner88/prompt-heist
+    branch: Milestone-4-Public-Release-and-Multiplayer-Hardening
+    plan: free
+    numInstances: 1
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass

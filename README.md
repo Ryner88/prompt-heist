@@ -38,9 +38,9 @@ The current prototype supports a complete three-round local pass-and-play missio
 
 Three or four players in an online room can play the complete heist from separate browsers. The Node room authority runs the rules, deals roles privately, and sends every player the same public view at each step. Each player sees only their own role; the Informant's sabotage, specialist information, and every vote stay private until the round resolves. Specialists can use their ability once per match before casting a vote. Each step advances once every player is ready, so a quick player cannot rush anyone past their role. A refresh or brief disconnect keeps the seat for 30 seconds and restores the player's role, ability use, and current step. If a player leaves for good, the heist is called off without revealing roles and the room reopens. After the recap, once everyone still in the room chooses **Back to the waiting room**, the room reopens with the same code for new players and another heist with fresh roles. See [ADR 0004](docs/adr/0004-server-authoritative-online-match.md).
 
-## Next milestone
+## Release validation
 
-The mobile and error-state pass, then public deployment and release validation.
+The remaining gate is a public HTTPS/WSS deployment and a four-player browser check on that deployment.
 
 ## Authoritative room service
 
@@ -56,7 +56,7 @@ npm start
 
 The server listens on `http://0.0.0.0:3000` by default. Readiness is available at `GET /healthz`, and clients connect to `ws://localhost:3000/ws`. Set `PORT` and `HOST` to override the defaults.
 
-Build and check the production container:
+Build and check the production container, which exports the Godot Web client and serves it from the same process as the room service:
 
 ```sh
 docker build -t prompt-heist-room-service .
@@ -64,7 +64,9 @@ docker run --rm -p 10000:10000 prompt-heist-room-service
 curl --fail http://localhost:10000/healthz
 ```
 
-Rooms are intentionally process-local and ephemeral. Current clients reserve a seat for 30 seconds after a transient disconnect. An acknowledged Leave releases it immediately. A restart removes every room and any heist in progress. Version 1 clients are rejected with `unsupported_version` and must update. Durable persistence and public deployment are not part of this slice.
+The game page is at `http://localhost:10000/`; the room WebSocket is at `ws://localhost:10000/ws`. The server serves only generated `index.*` assets from its static directory. The [Render Blueprint](render.yaml) selects one instance on the release branch and checks `/healthz`. Render supplies HTTPS and WSS at the same public host. The browser client derives its secure WebSocket URL from that host; a local Web build continues to use the project setting. A room's **Copy invite link** button produces `https://HOST/?room=CODE`; opening it pre-fills the Join flow. The room code is a locator, and the new player still enters a display name.
+
+Rooms are intentionally process-local and ephemeral. Current clients reserve a seat for 30 seconds after a transient disconnect. An acknowledged Leave releases it immediately. A restart removes every room and any heist in progress. Version 1 clients are rejected with `unsupported_version` and must update. Render's free instance can sleep or restart, so active rooms are not durable.
 
 ## Browser room flow
 
@@ -76,7 +78,7 @@ npm start
 godot --path .
 ```
 
-The client defaults to `ws://127.0.0.1:3000/ws`. Native development can override it with `PROMPT_HEIST_WS_URL`; Web builds read `network/room_service_url` from `project.godot`. Before a public Web build, set that project setting to the deployed `wss://…/ws` endpoint. Every non-loopback endpoint must use `wss://` and Godot's default certificate verification. The public URL is configuration, not gameplay code.
+The client defaults to `ws://127.0.0.1:3000/ws`. Native development can override it with `PROMPT_HEIST_WS_URL`; local Web builds read `network/room_service_url` from `project.godot`. Public Web builds connect to `wss://` on their own host with Godot's default certificate verification.
 
 Build the Web client after installing the Godot 4.7.2 export templates:
 
@@ -91,7 +93,7 @@ Serve the result over HTTP instead of opening `index.html` from disk:
 python3 -m http.server 8000 --directory builds/web
 ```
 
-Then open `http://127.0.0.1:8000/`. A future deployed HTTPS page must connect to a secure `wss://` room-service endpoint to avoid mixed-content blocking. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers. This PR does not deploy either component.
+Then open `http://127.0.0.1:8000/`. This standalone local static server still needs the separate room service at port 3000. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers.
 
 The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for 30 seconds; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. With three or four players, any member can start the online heist from the waiting room.
 

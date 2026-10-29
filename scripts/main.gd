@@ -31,11 +31,17 @@ var online_join_button: Button
 var online_validation_label: Label
 var online_sabotage_armed := false
 var online_screen_key := ""
+var online_scroll_reset_pending := false
 
 func _ready() -> void:
 	rng.randomize()
 	_build_shell()
 	_show_mode_selection()
+	if OS.has_feature("web"):
+		var linked_code: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
+		if linked_code is String and RoomProtocolScript.validate_room_code(linked_code) == "":
+			online_room_code = linked_code.to_upper()
+			_show_online_multiplayer()
 
 func _build_shell() -> void:
 	var background := ColorRect.new()
@@ -63,6 +69,8 @@ func _build_shell() -> void:
 
 	subtitle_label = Label.new()
 	subtitle_label.text = "TRUST NO ONE"
+	subtitle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	subtitle_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	subtitle_label.add_theme_font_size_override("font_size", 18)
 	subtitle_label.add_theme_color_override("font_color", Color("8fa3bf"))
 	page.add_child(subtitle_label)
@@ -175,6 +183,11 @@ func _configured_room_endpoint() -> String:
 	var environment_endpoint := OS.get_environment("PROMPT_HEIST_WS_URL").strip_edges()
 	if not environment_endpoint.is_empty():
 		return environment_endpoint
+	if OS.has_feature("web"):
+		var web_host: Variant = JavaScriptBridge.eval("window.location.hostname")
+		var web_origin: Variant = JavaScriptBridge.eval("window.location.host")
+		if web_host is String and web_origin is String and web_host not in ["localhost", "127.0.0.1", "[::1]"]:
+			return "wss://%s/ws" % web_origin
 	return str(ProjectSettings.get_setting("network/room_service_url", "ws://127.0.0.1:3000/ws")).strip_edges()
 
 func _render_multiplayer_state() -> void:
@@ -183,7 +196,9 @@ func _render_multiplayer_state() -> void:
 	var screen_key := str(multiplayer_flow.state)
 	if multiplayer_flow.state == MultiplayerFlowScript.State.MATCH and not multiplayer_flow.match_snapshot.is_empty():
 		screen_key += ":%s:%d" % [multiplayer_flow.match_snapshot.phase, multiplayer_flow.match_snapshot.round]
-	var previous_scroll := content_scroll.scroll_vertical if screen_key == online_screen_key else 0
+	if screen_key != online_screen_key:
+		online_scroll_reset_pending = true
+	var previous_scroll := content_scroll.scroll_vertical if not online_scroll_reset_pending else 0
 	online_screen_key = screen_key
 	_clear_content()
 	status_label.text = multiplayer_flow.feedback
@@ -200,8 +215,16 @@ func _render_multiplayer_state() -> void:
 			_show_online_match()
 		_:
 			_show_online_disconnected()
-	if previous_scroll > 0:
+	if online_scroll_reset_pending:
+		call_deferred("_finish_online_scroll_reset", screen_key)
+	elif previous_scroll > 0:
 		content_scroll.set_deferred("scroll_vertical", previous_scroll)
+
+func _finish_online_scroll_reset(expected_key: String) -> void:
+	if online_screen_key != expected_key:
+		return
+	content_scroll.scroll_vertical = 0
+	online_scroll_reset_pending = false
 
 func _show_online_connecting() -> void:
 	subtitle_label.text = "ONLINE • CONNECTING"
@@ -336,6 +359,17 @@ func _show_online_lobby() -> void:
 		status_label.text = "Room code copied when clipboard access is available."
 	)
 	content.add_child(copy_button)
+	if OS.has_feature("web"):
+		var page_url: Variant = JavaScriptBridge.eval("window.location.origin + window.location.pathname")
+		if page_url is String and RoomProtocolScript.validate_room_code(snapshot.room_code) == "":
+			var invite_url: String = page_url + "?room=" + snapshot.room_code
+			var invite_button := Button.new()
+			invite_button.text = "Copy invite link"
+			invite_button.pressed.connect(func() -> void:
+				DisplayServer.clipboard_set(invite_url)
+				status_label.text = "Invite link copied when clipboard access is available."
+			)
+			content.add_child(invite_button)
 	var count := Label.new()
 	count.text = "%d / %d players" % [snapshot.player_count, snapshot.max_players]
 	count.add_theme_font_size_override("font_size", 22)
@@ -415,6 +449,7 @@ func _online_heading(text: String, color: Color = Color("f4c95d"), size: int = 3
 	var heading := Label.new()
 	heading.text = text
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_theme_font_size_override("font_size", size)
 	heading.add_theme_color_override("font_color", color)
 	content.add_child(heading)
@@ -424,6 +459,7 @@ func _online_text(text: String, color: Color = Color("e6ebf2"), size: int = 18) 
 	var label := Label.new()
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
 	content.add_child(label)
@@ -515,11 +551,12 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 	_add_online_ability_controls(snapshot)
 	if bool(multiplayer_flow.match_private.get("sabotage_available", false)):
 		var sabotage := CheckBox.new()
-		sabotage.text = "Sabotage this round (once per match; adds 2 suspicion)"
+		sabotage.text = "Sabotage (+2 suspicion)"
 		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
 		sabotage.button_pressed = online_sabotage_armed
 		sabotage.toggled.connect(func(pressed: bool) -> void: online_sabotage_armed = pressed)
 		content.add_child(sabotage)
+		_online_text("Available once per match, before your vote.", Color("ef6f6c"), 16)
 	_add_online_plan_cards(snapshot, not multiplayer_flow.has_voted())
 
 func _add_online_ability_controls(snapshot: Dictionary) -> void:
