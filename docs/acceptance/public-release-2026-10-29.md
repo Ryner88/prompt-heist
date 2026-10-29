@@ -25,6 +25,8 @@ In a separate public room, the desktop Copy invite link button produced `https:/
 
 Direct public WSS checks also received the expected `unknown_room` for an invalid code, `room_full` for a fifth player, and `players_disconnected` when Start was requested after a reconnectable player left and the authority published the disconnected room revision.
 
-## Remaining device checks and operating limit
+## Additional device reports and operating limit
 
-The phone screens above are Chromium touch emulation, not a physical phone. A physical phone and a second browser engine have not been visually checked. Render's Free instance can spin down or restart; rooms live only in process memory, so a restart ends active rooms. The public link can be shared, but players should create a fresh room for each group.
+The phone screens above are Chromium touch emulation. The user subsequently reported that checks on a physical phone and in Microsoft Edge passed. The exact flow covered on each device was not specified; these are user-reported results, separate from the independently observed four-browser match above.
+
+Render's Free instance can spin down or restart; rooms live only in process memory, so a restart ends active rooms. The public link can be shared, but players should create a fresh room for each group.
