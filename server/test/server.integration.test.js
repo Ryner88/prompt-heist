@@ -1,9 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import WebSocket from "ws";
 import { MAX_PAYLOAD_BYTES } from "../src/constants.js";
 import { command, connectClient, createRoom, startTestServer } from "./helpers.js";
+
+function rawGet(baseUrl, target) {
+  const url = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ hostname: url.hostname, port: url.port, method: "GET", path: target }, (response) => {
+      response.resume();
+      response.on("end", () => resolve(response.statusCode));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
 
 test("health endpoint reports readiness", async (t) => {
   const server = await startTestServer();
@@ -14,6 +30,35 @@ test("health endpoint reports readiness", async (t) => {
   const missing = await fetch(`${server.httpUrl}/missing`);
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: "not_found" });
+});
+
+test("one service serves only Web export assets alongside the WebSocket endpoint", async (t) => {
+  const staticDir = await mkdtemp(join(tmpdir(), "prompt-heist-web-"));
+  t.after(() => rm(staticDir, { recursive: true, force: true }));
+  await writeFile(join(staticDir, "index.html"), "<title>Prompt Heist</title>");
+  await writeFile(join(staticDir, "index.wasm"), Buffer.from([0, 97, 115, 109]));
+  await writeFile(join(staticDir, "index.audio.worklet.js"), "registerProcessor('test', class {});");
+  await writeFile(join(staticDir, "secret.txt"), "private");
+  const server = await startTestServer({ staticDir });
+  t.after(() => server.service.close());
+  const home = await fetch(`${server.httpUrl}/`);
+  assert.equal(home.status, 200);
+  assert.equal(home.headers.get("content-type"), "text/html; charset=utf-8");
+  assert.match(await home.text(), /Prompt Heist/);
+  const wasm = await fetch(`${server.httpUrl}/index.wasm`);
+  assert.equal(wasm.headers.get("content-type"), "application/wasm");
+  assert.deepEqual(Buffer.from(await wasm.arrayBuffer()), Buffer.from([0, 97, 115, 109]));
+  const worklet = await fetch(`${server.httpUrl}/index.audio.worklet.js`);
+  assert.equal(worklet.headers.get("content-type"), "text/javascript; charset=utf-8");
+  assert.match(await worklet.text(), /registerProcessor/);
+  assert.equal((await fetch(`${server.httpUrl}/secret.txt`)).status, 404);
+  assert.equal(await rawGet(server.httpUrl, "/%2e%2e/secret.txt"), 404);
+  assert.ok([400, 404].includes(await rawGet(server.httpUrl, "http://%")));
+  assert.equal((await fetch(`${server.httpUrl}/healthz`)).status, 200);
+  const client = await connectClient(server.websocketUrl);
+  t.after(() => client.close());
+  const created = await createRoom(client);
+  assert.equal(created.type, "command_result");
 });
 
 test("unknown rooms and a second session on one connection are rejected", async (t) => {

@@ -1,5 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { createReadStream, statSync } from "node:fs";
+import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   MAX_PAYLOAD_BYTES,
@@ -11,8 +13,16 @@ import { decodeClientMessage, errorResponse, recoverRequestId, response } from "
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry } from "./room-registry.js";
 
+function requestPath(rawUrl) {
+  try {
+    return new URL(rawUrl ?? "/", "http://localhost").pathname;
+  } catch {
+    return null;
+  }
+}
+
 export function createPromptHeistServer({ registry = new RoomRegistry(), logger = defaultLogger,
-  sweepIntervalMs = 1_000 } = {}) {
+  sweepIntervalMs = 1_000, staticDir = process.env.STATIC_DIR ?? null } = {}) {
   const connections = new Map();
   let ready = false;
   let shuttingDown = false;
@@ -35,6 +45,27 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       reply.end(JSON.stringify({ status: healthy ? "ready" : "unavailable", protocol_version: PROTOCOL_VERSION }));
       return;
     }
+    if (staticDir && (request.method === "GET" || request.method === "HEAD")) {
+      const pathname = requestPath(request.url);
+      const asset = pathname === "/" ? "index.html" : pathname?.slice(1) ?? "";
+      if (/^index(?:\.[A-Za-z0-9_-]+)*\.(?:html|js|wasm|pck|png|ico)$/.test(asset)) {
+        const file = join(staticDir, asset);
+        try {
+          const info = statSync(file);
+          if (info.isFile()) {
+            const extension = asset.slice(asset.lastIndexOf("."));
+            const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+              ".wasm": "application/wasm", ".pck": "application/octet-stream",
+              ".png": "image/png", ".ico": "image/x-icon" }[extension];
+            reply.writeHead(200, { "content-type": mime, "content-length": info.size,
+              "cache-control": "no-cache", "x-content-type-options": "nosniff" });
+            if (request.method === "HEAD") reply.end();
+            else createReadStream(file).pipe(reply);
+            return;
+          }
+        } catch { /* Missing files receive the same 404 as other paths. */ }
+      }
+    }
     reply.writeHead(404, { "content-type": "application/json" });
     reply.end(JSON.stringify({ error: "not_found" }));
   });
@@ -42,7 +73,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
 
   httpServer.on("upgrade", (request, socket, head) => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    const path = requestPath(request.url);
     if (shuttingDown || path !== WEBSOCKET_PATH) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
