@@ -9,4 +9,5 @@ export const MAX_PAYLOAD_BYTES = 8 * 1024;
 export const RATE_LIMIT_WINDOW_MS = 10_000;
 export const RATE_LIMIT_COMMANDS = 20;
 export const REQUEST_CACHE_SIZE = 100;
+export const RECONNECT_GRACE_MS = 120_000;
 export const WEBSOCKET_PATH = "/ws";

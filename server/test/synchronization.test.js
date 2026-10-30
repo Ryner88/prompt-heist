@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { RECONNECT_GRACE_MS } from "../src/constants.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { command, connectClient, startTestServer } from "./helpers.js";
 
@@ -30,9 +31,9 @@ test("room revisions advance on authoritative transitions and not on rejected co
 
   const next = registry.createRoom("Cy", "c", { reconnect: true, sync: true });
   registry.removeConnection("c");
-  now = 29_999;
+  now = RECONNECT_GRACE_MS - 1;
   assert.equal(registry.publicSnapshot(next.roomCode, { revision: true }).revision, 2);
-  now = 30_000;
+  now = RECONNECT_GRACE_MS;
   assert.deepEqual(registry.expireReservations(), [next.roomCode]);
   assert.equal(registry.publicSnapshot(next.roomCode), null);
 });
@@ -118,7 +119,7 @@ test("disconnect, resume, and exact expiry converge on one authoritative revisio
   await ada.close();
   const reserved = await ben.next((message) => message.type === "room_snapshot" && message.payload.revision === 3);
   assert.deepEqual(reserved.payload.player_names, ["Ada", "Ben"]);
-  now = 29_999;
+  now = RECONNECT_GRACE_MS - 1;
   const resumed = await connectClient(server.websocketUrl);
   t.after(() => resumed.close());
   resumed.send(command("resume_room", "resume", { room_code: code, reconnect_token: created.payload.reconnect_token, sync: true }));
@@ -130,9 +131,9 @@ test("disconnect, resume, and exact expiry converge on one authoritative revisio
   assert.deepEqual(benRecovered.payload, adaRecovered.payload);
   await resumed.close();
   await ben.next((message) => message.type === "room_snapshot" && message.payload.revision === 5);
-  now = 59_998;
+  now = 2 * RECONNECT_GRACE_MS - 2;
   assert.equal(registry.publicSnapshot(code, { revision: true }).revision, 5);
-  now = 59_999;
+  now = 2 * RECONNECT_GRACE_MS - 1;
   const expired = await ben.next((message) => message.type === "room_snapshot" && message.payload.revision === 6, 500);
   assert.deepEqual(expired.payload.player_names, ["Ben"]);
   assert.equal(expired.payload.player_count, 1);

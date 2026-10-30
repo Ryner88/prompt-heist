@@ -2,6 +2,7 @@
 
 - Status: Accepted for Milestone 4 PR 4
 - Date: 2026-10-07
+- Amended: 2026-10-30 to extend the reconnect reservation to two minutes.
 
 ## Context
 
@@ -11,7 +12,7 @@ ADR 0001 removes a seat as soon as its WebSocket closes. That is safe but makes 
 
 - A client explicitly opts into recovery with `reconnect: true` on create or join. A legacy protocol-v1 client keeps the original response shape and immediate disconnect cleanup.
 - The server issues a random 256-bit bearer token privately; the room registry stores only its digest and binds it to one room seat. The bounded per-connection response cache retains the direct result for request-ID idempotency until close or eviction. The token is never accepted as a player ID, session ID, room snapshot field, or log field.
-- An unplanned close reserves the seat for 30 seconds. The deadline uses an injected monotonic clock; the comparison is strict: `now < expires_at` succeeds, `now >= expires_at` expires the seat.
+- An unplanned close reserves the seat for two minutes. The deadline uses an injected monotonic clock; the comparison is strict: `now < expires_at` succeeds, `now >= expires_at` expires the seat.
 - A resume rotates both token and session ID and replaces the bound socket atomically. Closing the stale socket cannot remove the replacement.
 - The replaced socket is retired immediately and cannot claim another seat before its close completes.
 - Explicit `leave_room` immediately releases the seat and invalidates the token. The client waits for acknowledgement before treating leave as complete.
