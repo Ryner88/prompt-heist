@@ -51,12 +51,17 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		_initialize_web_keyboard_attributes()
 	_build_shell()
-	_show_mode_selection()
 	if OS.has_feature("web"):
+		_initialize_multiplayer()
 		var linked_code: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
 		if linked_code is String and RoomProtocolScript.validate_room_code(linked_code) == "":
 			online_room_code = linked_code.to_upper()
 			_show_online_multiplayer()
+			return
+		if room_client.has_recovery():
+			_show_online_multiplayer()
+			return
+	_show_mode_selection()
 
 func _build_shell() -> void:
 	var background := ColorRect.new()
