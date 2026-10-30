@@ -30,6 +30,7 @@ var online_room_code := ""
 var online_endpoint := ""
 var online_create_button: Button
 var online_join_button: Button
+var home_join_button: Button
 var online_validation_label: Label
 var online_sabotage_armed := false
 var online_screen_key := ""
@@ -239,6 +240,7 @@ func _build_shell() -> void:
 
 func _clear_content() -> void:
 	_clear_web_native_text_inputs()
+	home_join_button = null
 	content_scroll.scroll_vertical = 0
 	content.visible = true
 	privacy_notice.visible = false
@@ -250,60 +252,114 @@ func _clear_content() -> void:
 func _show_mode_selection() -> void:
 	_clear_content()
 	match_dashboard.visible = false
-	subtitle_label.text = "CHOOSE HOW TO PLAY"
-	var intro := Label.new()
-	intro.text = "Three rounds. One hidden Informant. Trust your crew—or betray them."
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.add_theme_font_size_override("font_size", 18)
-	content.add_child(intro)
+	subtitle_label.text = "HEIST DASHBOARD"
+	var overview := _home_dashboard_card(Color("f4c95d"))
+	var overview_title := Label.new()
+	overview_title.text = "YOUR NEXT MISSION"
+	overview_title.add_theme_font_size_override("font_size", 22)
+	overview_title.add_theme_color_override("font_color", Color("f4c95d"))
+	overview.add_child(overview_title)
+	var overview_text := Label.new()
+	overview_text.text = "Plan and vote through three rounds. Four players add a hidden Informant."
+	overview_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	overview_text.add_theme_font_size_override("font_size", 16)
+	overview.add_child(overview_text)
+	var overview_facts := Label.new()
+	overview_facts.text = "3–4 ONLINE PLAYERS   |   3 ROUNDS"
+	overview_facts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	overview_facts.add_theme_font_size_override("font_size", 12)
+	overview_facts.add_theme_color_override("font_color", Color("56cfe1"))
+	overview.add_child(overview_facts)
 
-	_online_heading("JOIN A ROOM", Color("f4c95d"), 25)
+	var join_card := _home_dashboard_card(Color("56cfe1"))
+	var join_title := Label.new()
+	join_title.text = "JOIN A CREW"
+	join_title.add_theme_font_size_override("font_size", 22)
+	join_title.add_theme_color_override("font_color", Color("56cfe1"))
+	join_card.add_child(join_title)
 	var quick_code := LineEdit.new()
-	quick_code.placeholder_text = "ROOM CODE"
+	quick_code.placeholder_text = "6-CHAR CODE"
 	quick_code.max_length = RoomProtocolScript.ROOM_CODE_LENGTH
 	quick_code.text = online_room_code
-	quick_code.custom_minimum_size = Vector2(0, 64)
-	quick_code.add_theme_font_size_override("font_size", 30)
+	quick_code.custom_minimum_size = Vector2(0, 60)
+	quick_code.add_theme_font_size_override("font_size", 28)
+	var online_button := Button.new()
+	online_button.text = "Join room"
+	online_button.custom_minimum_size = Vector2(0, 52)
+	online_button.disabled = RoomProtocolScript.validate_room_code(online_room_code) != ""
+	home_join_button = online_button
 	quick_code.text_changed.connect(func(value: String) -> void:
 		var cleaned := _clean_room_code(value)
 		online_room_code = cleaned
 		if quick_code.text != cleaned:
 			quick_code.text = cleaned
 			quick_code.caret_column = cleaned.length()
+		online_button.disabled = RoomProtocolScript.validate_room_code(cleaned) != ""
 	)
 	quick_code.focus_entered.connect(_configure_web_code_input)
-	content.add_child(quick_code)
+	join_card.add_child(quick_code)
 	_register_web_native_text_input("quick_code", quick_code, true)
-	var online_button := Button.new()
-	online_button.text = "Join online room"
-	online_button.custom_minimum_size = Vector2(0, 56)
 	online_button.pressed.connect(func() -> void:
 		online_room_code = _clean_room_code(quick_code.text)
 		_show_online_multiplayer()
 	)
-	content.add_child(online_button)
+	join_card.add_child(online_button)
+
+	var create_card := _home_dashboard_card(Color("62d6a7"))
+	var create_title := Label.new()
+	create_title.text = "START A NEW HEIST"
+	create_title.add_theme_font_size_override("font_size", 22)
+	create_title.add_theme_color_override("font_color", Color("62d6a7"))
+	create_card.add_child(create_title)
 	var create_button := Button.new()
-	create_button.text = "Create online room"
-	create_button.custom_minimum_size = Vector2(0, 56)
+	create_button.text = "Create room"
+	create_button.custom_minimum_size = Vector2(0, 52)
 	create_button.pressed.connect(func() -> void:
 		online_room_code = ""
 		_show_online_multiplayer()
 	)
-	content.add_child(create_button)
-	_online_text("Use touch or mouse. Create a room and share its code, or enter a friend's six-character code to join.", Color("8fa3bf"), 16)
-	quick_code.grab_focus()
+	create_card.add_child(create_button)
 
 	var local_button := Button.new()
 	local_button.text = "Local pass-and-play"
-	local_button.custom_minimum_size = Vector2(0, 56)
+	local_button.custom_minimum_size = Vector2(0, 48)
+	local_button.custom_minimum_size.x = _home_dashboard_width()
+	local_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	local_button.pressed.connect(_show_lobby)
 	content.add_child(local_button)
 
 	var guide_button := Button.new()
 	guide_button.text = "How to play"
 	guide_button.custom_minimum_size = Vector2(0, 48)
+	guide_button.custom_minimum_size.x = _home_dashboard_width()
+	guide_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	guide_button.pressed.connect(_show_how_to_play)
 	content.add_child(guide_button)
+	quick_code.grab_focus()
+
+func _home_dashboard_card(accent: Color) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = _home_dashboard_width()
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("1b2636")
+	style.border_color = accent
+	style.border_width_left = 4
+	panel.add_theme_stylebox_override("panel", style)
+	content.add_child(panel)
+	var padding := MarginContainer.new()
+	padding.add_theme_constant_override("margin_left", 14)
+	padding.add_theme_constant_override("margin_right", 14)
+	padding.add_theme_constant_override("margin_top", 10)
+	padding.add_theme_constant_override("margin_bottom", 10)
+	panel.add_child(padding)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	padding.add_child(body)
+	return body
+
+func _home_dashboard_width() -> float:
+	return minf(get_viewport_rect().size.x - 64.0, 720.0)
 
 func _show_how_to_play() -> void:
 	_clear_content()
@@ -662,6 +718,8 @@ func _register_web_native_text_input(id: String, control: LineEdit, is_code: boo
 			online_name = value
 		control.text = value
 		control.caret_column = value.length()
+		if id == "quick_code" and is_instance_valid(home_join_button):
+			home_join_button.disabled = RoomProtocolScript.validate_room_code(value) != ""
 		_refresh_online_entry_buttons()
 		JavaScriptBridge.get_interface("__promptHeistNativeText").setValue(id, value)
 	)
