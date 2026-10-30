@@ -50,13 +50,77 @@ func _ready() -> void:
 	rng.randomize()
 	if OS.has_feature("web"):
 		_initialize_web_keyboard_attributes()
+		_initialize_web_tab_probe()
 	_build_shell()
-	_show_mode_selection()
 	if OS.has_feature("web"):
+		_initialize_multiplayer()
+		if room_client.has_recovery() and await _another_web_tab_has_seat():
+			_show_mode_selection()
+			status_label.text = "This seat is open in another tab. Return to that tab, or close it before reconnecting here."
+			return
 		var linked_code: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
 		if linked_code is String and RoomProtocolScript.validate_room_code(linked_code) == "":
 			online_room_code = linked_code.to_upper()
 			_show_online_multiplayer()
+			return
+		if room_client.has_recovery():
+			_show_online_multiplayer()
+			return
+	_show_mode_selection()
+
+func _initialize_web_tab_probe() -> void:
+	JavaScriptBridge.eval("""
+		window.__promptHeistTabId = crypto.randomUUID();
+		window.__promptHeistOtherTab = false;
+		window.__promptHeistSeatActive = false;
+		const ownerKey = 'prompt-heist-active-seat-v1';
+		window.__promptHeistClaimSeat = () => {
+			try {
+				const saved = JSON.parse(sessionStorage.getItem('prompt_heist_room_recovery_v2') || 'null');
+				if (saved && saved.room_code && saved.reconnect_token) {
+					localStorage.setItem(ownerKey, JSON.stringify({id: window.__promptHeistTabId, room_code: saved.room_code, at: Date.now()}));
+				}
+			} catch (_) {}
+		};
+		window.__promptHeistReleaseSeat = () => {
+			try {
+				const owner = JSON.parse(localStorage.getItem(ownerKey) || 'null');
+				if (owner && owner.id === window.__promptHeistTabId) localStorage.removeItem(ownerKey);
+			} catch (_) {}
+		};
+		window.addEventListener('pagehide', window.__promptHeistReleaseSeat);
+		setInterval(() => { if (window.__promptHeistSeatActive) window.__promptHeistClaimSeat(); }, 1000);
+		window.__promptHeistTabChannel = new BroadcastChannel('prompt-heist-seat-v1');
+		window.__promptHeistTabChannel.onmessage = (event) => {
+			const message = event.data;
+			if (!message || message.id === window.__promptHeistTabId) return;
+			if (message.kind === 'seat-present') {
+				window.__promptHeistOtherTab = true;
+				return;
+			}
+			if (message.kind !== 'seat-probe') return;
+			try {
+				const saved = JSON.parse(sessionStorage.getItem('prompt_heist_room_recovery_v2') || 'null');
+				if (window.__promptHeistSeatActive && saved && saved.room_code === message.room_code && saved.reconnect_token) {
+					window.__promptHeistTabChannel.postMessage({kind: 'seat-present', id: window.__promptHeistTabId});
+				}
+			} catch (_) {}
+		};
+	""")
+
+func _another_web_tab_has_seat() -> bool:
+	var room_code: String = room_client.reconnect_room_code
+	var owned_elsewhere: Variant = JavaScriptBridge.eval("""
+		(function() { try {
+			const owner = JSON.parse(localStorage.getItem('prompt-heist-active-seat-v1') || 'null');
+			return Boolean(owner && owner.id !== window.__promptHeistTabId && owner.room_code === '%s');
+		} catch (_) { return false; } })()
+	""" % room_code)
+	if bool(owned_elsewhere):
+		return true
+	JavaScriptBridge.eval("window.__promptHeistTabChannel.postMessage({kind: 'seat-probe', id: window.__promptHeistTabId, room_code: '%s'});" % room_code)
+	await get_tree().create_timer(0.35).timeout
+	return bool(JavaScriptBridge.eval("window.__promptHeistOtherTab === true"))
 
 func _build_shell() -> void:
 	var background := ColorRect.new()
@@ -211,6 +275,8 @@ func _show_how_to_play() -> void:
 
 func _show_online_multiplayer() -> void:
 	_initialize_multiplayer()
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.__promptHeistSeatActive = true; window.__promptHeistClaimSeat()")
 	online_endpoint = _configured_room_endpoint()
 	multiplayer_flow.connect_service(online_endpoint)
 	_render_multiplayer_state()
