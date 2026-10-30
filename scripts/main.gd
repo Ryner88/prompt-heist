@@ -14,6 +14,8 @@ var title_label: Label
 var subtitle_label: Label
 var content: VBoxContainer
 var content_scroll: ScrollContainer
+var match_dashboard: VBoxContainer
+var privacy_notice: Label
 var status_label: Label
 var name_input: LineEdit
 var roster: VBoxContainer
@@ -32,6 +34,16 @@ var online_validation_label: Label
 var online_sabotage_armed := false
 var online_screen_key := ""
 var online_scroll_reset_pending := false
+var privacy_mode := false
+var notes_open := false
+var accusation_notes: Dictionary = {}
+var last_haptic_turn := ""
+var shown_complication_round := -1
+var discussion_timer: Timer
+var countdown_label: Label
+var countdown_phase_key := ""
+var countdown_started_ms := 0
+const NOTE_TAGS := ["Suspicious action", "Blew resources", "Failed ability"]
 
 func _ready() -> void:
 	rng.randomize()
@@ -76,6 +88,19 @@ func _build_shell() -> void:
 	page.add_child(subtitle_label)
 
 	page.add_child(HSeparator.new())
+	match_dashboard = VBoxContainer.new()
+	match_dashboard.visible = false
+	page.add_child(match_dashboard)
+	discussion_timer = Timer.new()
+	discussion_timer.wait_time = 1.0
+	discussion_timer.timeout.connect(_update_countdown)
+	add_child(discussion_timer)
+	privacy_notice = Label.new()
+	privacy_notice.text = "Privacy shroud is on. Tap Privacy to view this screen."
+	privacy_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	privacy_notice.visible = false
+	privacy_notice.add_theme_color_override("font_color", Color("f4c95d"))
+	page.add_child(privacy_notice)
 	content_scroll = ScrollContainer.new()
 	content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -97,25 +122,56 @@ func _build_shell() -> void:
 
 func _clear_content() -> void:
 	content_scroll.scroll_vertical = 0
+	content.visible = true
+	privacy_notice.visible = false
 	for child in content.get_children():
 		child.queue_free()
 	status_label.text = ""
 
 func _show_mode_selection() -> void:
 	_clear_content()
+	match_dashboard.visible = false
 	subtitle_label.text = "CHOOSE HOW TO PLAY"
 	var intro := Label.new()
-	intro.text = "Plan a three-round heist with friends. Work together, watch the meters, and uncover the Informant when four or more players join."
+	intro.text = "Three rounds. One hidden Informant. Trust your crew—or betray them."
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.add_theme_font_size_override("font_size", 21)
+	intro.add_theme_font_size_override("font_size", 18)
 	content.add_child(intro)
-	_online_text("CONTROLS • Use mouse or touch to choose plans and buttons. Online: create a room, share its six-character code, or join with a friend's code.", Color("8fa3bf"), 16)
 
+	_online_heading("JOIN A ROOM", Color("f4c95d"), 25)
+	var quick_code := LineEdit.new()
+	quick_code.placeholder_text = "ROOM CODE"
+	quick_code.max_length = RoomProtocolScript.ROOM_CODE_LENGTH
+	quick_code.text = online_room_code
+	quick_code.custom_minimum_size = Vector2(0, 64)
+	quick_code.add_theme_font_size_override("font_size", 30)
+	quick_code.text_changed.connect(func(value: String) -> void:
+		var cleaned := _clean_room_code(value)
+		online_room_code = cleaned
+		if quick_code.text != cleaned:
+			quick_code.text = cleaned
+			quick_code.caret_column = cleaned.length()
+	)
+	quick_code.focus_entered.connect(_configure_web_code_input)
+	content.add_child(quick_code)
 	var online_button := Button.new()
-	online_button.text = "Create or join an online room"
+	online_button.text = "Join online room"
 	online_button.custom_minimum_size = Vector2(0, 56)
-	online_button.pressed.connect(_show_online_multiplayer)
+	online_button.pressed.connect(func() -> void:
+		online_room_code = _clean_room_code(quick_code.text)
+		_show_online_multiplayer()
+	)
 	content.add_child(online_button)
+	var create_button := Button.new()
+	create_button.text = "Create online room"
+	create_button.custom_minimum_size = Vector2(0, 56)
+	create_button.pressed.connect(func() -> void:
+		online_room_code = ""
+		_show_online_multiplayer()
+	)
+	content.add_child(create_button)
+	_online_text("Use touch or mouse. Create a room and share its code, or enter a friend's six-character code to join.", Color("8fa3bf"), 16)
+	quick_code.grab_focus()
 
 	var local_button := Button.new()
 	local_button.text = "Local pass-and-play"
@@ -140,6 +196,8 @@ func _show_how_to_play() -> void:
 	_online_text("The crew needs at least two successful plans across three rounds. Running out of time or resources, or reaching seven suspicion, ends the mission immediately. In a social match, a successful mission leads to a private accusation. The crew wins only if one suspect leads and that suspect is the Informant; otherwise the Informant wins.")
 	_online_heading("Secret roles", Color("f4c95d"), 25)
 	_online_text("Specialists may use their ability once, before casting a private vote. You may skip it. Its effect is confirmed on your screen. The Informant can instead add two suspicion once by checking sabotage when voting; it is revealed after resolution.")
+	_online_heading("Phone controls", Color("f4c95d"), 25)
+	_online_text("Hold your role card to see it and release to hide it. Use Privacy to cover your match screen, and Deduction notes to tag other players privately on this device. The planning and voting countdowns are discussion aids; everyone still needs to act before the room advances. Confirm an accusation before it is sent.")
 	for role in GameState.ROLE_TEMPLATES:
 		_online_text("%s • %s" % [role.role, role.ability], Color("e6ebf2"), 16)
 	var back := Button.new()
@@ -173,6 +231,14 @@ func _initialize_multiplayer() -> void:
 
 func _on_online_state_changed(_state: int) -> void:
 	online_sabotage_armed = false
+	if _state in [MultiplayerFlowScript.State.ENTRY, MultiplayerFlowScript.State.LOBBY, MultiplayerFlowScript.State.LEAVING]:
+		privacy_mode = false
+		notes_open = false
+		accusation_notes.clear()
+		last_haptic_turn = ""
+		shown_complication_round = -1
+		countdown_phase_key = ""
+		discussion_timer.stop()
 	_render_multiplayer_state()
 
 func _on_online_request_failed(_code: String, _message: String) -> void:
@@ -202,6 +268,9 @@ func _render_multiplayer_state() -> void:
 	online_screen_key = screen_key
 	_clear_content()
 	status_label.text = multiplayer_flow.feedback
+	match_dashboard.visible = multiplayer_flow.state == MultiplayerFlowScript.State.MATCH
+	for child in match_dashboard.get_children():
+		child.queue_free()
 	match multiplayer_flow.state:
 		MultiplayerFlowScript.State.CONNECTING:
 			_show_online_connecting()
@@ -215,6 +284,9 @@ func _render_multiplayer_state() -> void:
 			_show_online_match()
 		_:
 			_show_online_disconnected()
+	if multiplayer_flow.state == MultiplayerFlowScript.State.MATCH:
+		content.visible = not privacy_mode
+		privacy_notice.visible = privacy_mode
 	if online_scroll_reset_pending:
 		call_deferred("_finish_online_scroll_reset", screen_key)
 	elif previous_scroll > 0:
@@ -266,12 +338,32 @@ func _show_online_entry(pending: bool) -> void:
 	connection.add_theme_color_override("font_color", Color("62d6a7"))
 	content.add_child(connection)
 
+	var code_label := Label.new()
+	code_label.text = "JOIN WITH ROOM CODE"
+	content.add_child(code_label)
+	var code_input := LineEdit.new()
+	code_input.placeholder_text = "ABC234"
+	code_input.max_length = RoomProtocolScript.ROOM_CODE_LENGTH
+	code_input.custom_minimum_size = Vector2(0, 64)
+	code_input.add_theme_font_size_override("font_size", 30)
+	code_input.text = online_room_code
+	code_input.editable = not pending
+	code_input.text_changed.connect(func(value: String) -> void:
+		online_room_code = _clean_room_code(value)
+		if code_input.text != online_room_code:
+			code_input.text = online_room_code
+			code_input.caret_column = online_room_code.length()
+		_refresh_online_entry_buttons()
+	)
+	code_input.focus_entered.connect(_configure_web_code_input)
+	content.add_child(code_input)
 	var name_label := Label.new()
-	name_label.text = "DISPLAY NAME"
+	name_label.text = "YOUR DISPLAY NAME"
 	content.add_child(name_label)
 	var online_name_input := LineEdit.new()
 	online_name_input.placeholder_text = "2–18 characters"
 	online_name_input.max_length = RoomProtocolScript.MAX_NAME_LENGTH
+	online_name_input.custom_minimum_size = Vector2(0, 56)
 	online_name_input.text = online_name
 	online_name_input.editable = not pending
 	online_name_input.text_changed.connect(func(value: String) -> void:
@@ -280,40 +372,24 @@ func _show_online_entry(pending: bool) -> void:
 	)
 	content.add_child(online_name_input)
 
-	online_create_button = Button.new()
-	online_create_button.text = "Creating room…" if pending else "Create Room"
-	online_create_button.pressed.connect(func() -> void:
-		online_name = online_name_input.text
-		multiplayer_flow.submit_create(online_name)
-	)
-	content.add_child(online_create_button)
-
-	content.add_child(HSeparator.new())
-	var code_label := Label.new()
-	code_label.text = "ROOM CODE"
-	content.add_child(code_label)
-	var code_input := LineEdit.new()
-	code_input.placeholder_text = "ABC234"
-	code_input.max_length = RoomProtocolScript.ROOM_CODE_LENGTH
-	code_input.text = online_room_code
-	code_input.editable = not pending
-	code_input.text_changed.connect(func(value: String) -> void:
-		online_room_code = value.to_upper()
-		if code_input.text != online_room_code:
-			code_input.text = online_room_code
-			code_input.caret_column = online_room_code.length()
-		_refresh_online_entry_buttons()
-	)
-	content.add_child(code_input)
-
 	online_join_button = Button.new()
 	online_join_button.text = "Joining room…" if pending else "Join Room"
+	online_join_button.custom_minimum_size = Vector2(0, 56)
 	online_join_button.pressed.connect(func() -> void:
 		online_name = online_name_input.text
 		online_room_code = code_input.text
 		multiplayer_flow.submit_join(online_name, online_room_code)
 	)
 	content.add_child(online_join_button)
+	_online_text("OR CREATE A NEW ROOM", Color("8fa3bf"), 16)
+	online_create_button = Button.new()
+	online_create_button.text = "Creating room…" if pending else "Create Room"
+	online_create_button.custom_minimum_size = Vector2(0, 56)
+	online_create_button.pressed.connect(func() -> void:
+		online_name = online_name_input.text
+		multiplayer_flow.submit_create(online_name)
+	)
+	content.add_child(online_create_button)
 
 	online_validation_label = Label.new()
 	online_validation_label.add_theme_color_override("font_color", Color("8fa3bf"))
@@ -321,7 +397,21 @@ func _show_online_entry(pending: bool) -> void:
 	content.add_child(online_validation_label)
 	_refresh_online_entry_buttons()
 	if not pending:
-		online_name_input.grab_focus()
+		if online_room_code.is_empty():
+			code_input.grab_focus()
+		else:
+			online_name_input.grab_focus()
+
+func _clean_room_code(value: String) -> String:
+	var cleaned := ""
+	for character in value.to_upper():
+		if RoomProtocolScript.ROOM_CODE_ALPHABET.contains(character):
+			cleaned += character
+	return cleaned.substr(0, RoomProtocolScript.ROOM_CODE_LENGTH)
+
+func _configure_web_code_input() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("if (document.activeElement instanceof HTMLInputElement) { document.activeElement.setAttribute('autocorrect', 'off'); document.activeElement.setAttribute('autocapitalize', 'characters'); document.activeElement.setAttribute('spellcheck', 'false'); }")
 
 func _refresh_online_entry_buttons() -> void:
 	if online_create_button == null or not is_instance_valid(online_create_button):
@@ -417,7 +507,11 @@ func _show_online_match() -> void:
 	var snapshot: Dictionary = multiplayer_flow.match_snapshot
 	if snapshot.is_empty():
 		return
+	_add_match_dashboard(snapshot)
+	_maybe_alert_turn(snapshot)
 	var phase: String = snapshot.phase
+	if notes_open and phase not in ["role_reveal", "finished"]:
+		_add_accusation_notes(snapshot)
 	match phase:
 		"role_reveal":
 			_show_online_role(snapshot)
@@ -434,16 +528,151 @@ func _show_online_match() -> void:
 		"finished":
 			_show_online_recap(snapshot)
 	_add_online_presence(snapshot)
+	if phase == "resolution":
+		_maybe_show_complication(snapshot)
 
-func _add_online_meters(snapshot: Dictionary) -> void:
+func _add_match_dashboard(snapshot: Dictionary) -> void:
+	var top := HBoxContainer.new()
+	match_dashboard.add_child(top)
+	var phase: String = snapshot.phase
+	var phase_name := phase.capitalize()
+	var phase_label := Label.new()
+	phase_label.text = "ROUND %d/%d • %s" % [snapshot.round, snapshot.total_rounds, phase_name]
+	phase_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	phase_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	phase_label.add_theme_color_override("font_color", Color("f4c95d"))
+	top.add_child(phase_label)
+	var countdown_seconds := _countdown_duration(phase)
+	if countdown_seconds > 0:
+		var phase_key := "%s:%d:%s" % [snapshot.room_code, snapshot.round, phase]
+		if phase_key != countdown_phase_key:
+			countdown_phase_key = phase_key
+			countdown_started_ms = Time.get_ticks_msec()
+			discussion_timer.start()
+		countdown_label = Label.new()
+		countdown_label.add_theme_color_override("font_color", Color("56cfe1"))
+		countdown_label.add_theme_font_size_override("font_size", 16)
+		top.add_child(countdown_label)
+		_update_countdown()
+	else:
+		countdown_label = null
+		discussion_timer.stop()
+	var controls := HBoxContainer.new()
+	match_dashboard.add_child(controls)
+	var privacy_button := Button.new()
+	privacy_button.text = "Privacy: ON" if privacy_mode else "Privacy: OFF"
+	privacy_button.custom_minimum_size = Vector2(112, 48)
+	privacy_button.pressed.connect(func() -> void:
+		privacy_mode = not privacy_mode
+		_render_multiplayer_state()
+	)
+	controls.add_child(privacy_button)
 	var meters_data: Dictionary = snapshot.meters
-	var meters := GridContainer.new()
-	meters.columns = 1 if size.x < 700 else 3
-	meters.add_theme_constant_override("separation", 24)
-	content.add_child(meters)
-	meters.add_child(_make_meter("TIME", meters_data.time, meters_data.max_time, Color("56cfe1")))
-	meters.add_child(_make_meter("SUSPICION", meters_data.suspicion, meters_data.max_suspicion, Color("ef6f6c")))
-	meters.add_child(_make_meter("RESOURCES", meters_data.resources, meters_data.max_resources, Color("f4c95d")))
+	var bars := GridContainer.new()
+	bars.columns = 3
+	bars.add_theme_constant_override("h_separation", 8)
+	match_dashboard.add_child(bars)
+	bars.add_child(_make_meter("TIME", meters_data.time, meters_data.max_time, Color("56cfe1"), true))
+	bars.add_child(_make_meter("SUSPICION", meters_data.suspicion, meters_data.max_suspicion, Color("ef6f6c"), true))
+	bars.add_child(_make_meter("RESOURCES", meters_data.resources, meters_data.max_resources, Color("f4c95d"), true))
+	if phase not in ["role_reveal", "finished"]:
+		var notes_button := Button.new()
+		notes_button.text = "Hide notes" if notes_open else "Deduction notes"
+		notes_button.custom_minimum_size = Vector2(0, 44)
+		notes_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		notes_button.pressed.connect(func() -> void:
+			notes_open = not notes_open
+			_render_multiplayer_state()
+		)
+		controls.add_child(notes_button)
+	if countdown_seconds > 0:
+		var timer_note := Label.new()
+		timer_note.text = "Timer on this device only • the phase advances when everyone acts"
+		timer_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		timer_note.add_theme_font_size_override("font_size", 12)
+		timer_note.add_theme_color_override("font_color", Color("8fa3bf"))
+		match_dashboard.add_child(timer_note)
+
+func _countdown_duration(phase: String) -> int:
+	if phase == "planning":
+		return 90
+	if phase == "voting":
+		return 60
+	return 0
+
+func _update_countdown() -> void:
+	if countdown_label == null or not is_instance_valid(countdown_label):
+		return
+	var phase: String = str(multiplayer_flow.match_snapshot.get("phase", ""))
+	var elapsed := maxi(0, int((Time.get_ticks_msec() - countdown_started_ms) / 1000))
+	var remaining := maxi(0, _countdown_duration(phase) - elapsed)
+	countdown_label.text = "Timer %02d:%02d" % [int(remaining / 60), remaining % 60]
+	countdown_label.tooltip_text = "Visual discussion timer. The room advances when every player acts."
+	if remaining == 0:
+		discussion_timer.stop()
+
+func _maybe_alert_turn(snapshot: Dictionary) -> void:
+	var phase: String = snapshot.phase
+	var action_due := false
+	if phase in RoomProtocolScript.READY_PHASES:
+		action_due = not multiplayer_flow.is_ready()
+	elif phase == "voting":
+		action_due = not multiplayer_flow.has_voted()
+	elif phase == "accusation":
+		action_due = not multiplayer_flow.is_informant() and not multiplayer_flow.has_accused()
+	var turn_key := "%s:%d:%s" % [snapshot.room_code, snapshot.round, phase]
+	if action_due and turn_key != last_haptic_turn:
+		last_haptic_turn = turn_key
+		_vibrate(40)
+
+func _vibrate(milliseconds: int) -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("if (navigator.vibrate) navigator.vibrate(%d)" % milliseconds)
+
+func _maybe_show_complication(snapshot: Dictionary) -> void:
+	var result: Dictionary = snapshot.last_result
+	if privacy_mode or result.is_empty() or shown_complication_round == int(result.round):
+		return
+	if not str(result.consequence).contains("Base score fell by"):
+		return
+	shown_complication_round = int(result.round)
+	_vibrate(90)
+	var alert := AcceptDialog.new()
+	alert.title = "Hidden complication triggered"
+	alert.dialog_text = result.consequence
+	alert.ok_button_text = "Acknowledge"
+	add_child(alert)
+	alert.confirmed.connect(alert.queue_free)
+	alert.close_requested.connect(alert.queue_free)
+	alert.popup_centered(Vector2i(340, 240))
+
+func _add_accusation_notes(snapshot: Dictionary) -> void:
+	_online_heading("Private deduction notes", Color("f4c95d"), 21)
+	_online_text("These tags stay on this device and reset for the next match.", Color("8fa3bf"), 14)
+	for seat in snapshot.seats:
+		if seat.seat == multiplayer_flow.my_seat():
+			continue
+		var seat_number: int = seat.seat
+		_online_text(seat.name, Color("e6ebf2"), 17)
+		var tags := GridContainer.new()
+		tags.columns = 1 if size.x < 700 else 3
+		content.add_child(tags)
+		for tag in NOTE_TAGS:
+			var current_tag: String = tag
+			var selected: Array = accusation_notes.get(seat_number, [])
+			var tag_button := Button.new()
+			tag_button.text = ("✓ " if selected.has(current_tag) else "+ ") + current_tag
+			tag_button.custom_minimum_size = Vector2(0, 44)
+			tag_button.pressed.connect(func() -> void:
+				var updated: Array = accusation_notes.get(seat_number, []).duplicate()
+				if updated.has(current_tag):
+					updated.erase(current_tag)
+				else:
+					updated.append(current_tag)
+				accusation_notes[seat_number] = updated
+				_render_multiplayer_state()
+			)
+			tags.add_child(tag_button)
 
 func _online_heading(text: String, color: Color = Color("f4c95d"), size: int = 30) -> Label:
 	var heading := Label.new()
@@ -517,13 +746,44 @@ func _show_online_role(snapshot: Dictionary) -> void:
 	if private_state.is_empty():
 		_online_text("Receiving your role…")
 		return
-	_online_text("Only you can see this. Keep your screen to yourself.", Color("8fa3bf"))
+	_online_text("Keep your screen to yourself. Hold the button to view your role; release to hide it.", Color("8fa3bf"))
 	var is_informant: bool = multiplayer_flow.is_informant()
-	_online_heading(private_state.role, Color("ef6f6c") if is_informant else Color("f4c95d"), 38)
-	_online_text(private_state.ability, Color("e6ebf2"), 20)
+	var role_card := _online_heading("ROLE HIDDEN", Color("f4c95d"), 34)
+	role_card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	role_card.custom_minimum_size = Vector2(0, 130)
+	var role_detail := _online_text("Hold to reveal", Color("8fa3bf"), 20)
+	role_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var reveal := Button.new()
+	reveal.text = "Hold to reveal role"
+	reveal.custom_minimum_size = Vector2(0, 72)
+	content.add_child(reveal)
+	var hold_timer := Timer.new()
+	hold_timer.one_shot = true
+	hold_timer.wait_time = 0.45
+	reveal.add_child(hold_timer)
+	var holding := [false]
+	reveal.button_down.connect(func() -> void:
+		holding[0] = true
+		hold_timer.start()
+	)
+	reveal.button_up.connect(func() -> void:
+		holding[0] = false
+		hold_timer.stop()
+		if is_instance_valid(role_card):
+			role_card.text = "ROLE HIDDEN"
+			role_card.add_theme_color_override("font_color", Color("f4c95d"))
+			role_detail.text = "Hold to reveal"
+	)
+	hold_timer.timeout.connect(func() -> void:
+		if holding[0] and is_instance_valid(role_card):
+			role_card.text = private_state.role
+			role_card.add_theme_color_override("font_color", Color("ef6f6c") if is_informant else Color("f4c95d"))
+			role_detail.text = private_state.ability
+			_vibrate(35)
+	)
 	var mode_note := "This is a cooperative heist: there is no Informant." if snapshot.mode == "cooperative" else "One player is a hidden Informant."
 	_online_text(mode_note, Color("8fa3bf"))
-	_add_ready_button("I've seen my role")
+	_add_ready_button("I've seen my role; continue")
 
 func _show_online_briefing(snapshot: Dictionary) -> void:
 	subtitle_label.text = "ONLINE • MISSION BRIEFING"
@@ -536,14 +796,12 @@ func _show_online_briefing(snapshot: Dictionary) -> void:
 
 func _show_online_planning(snapshot: Dictionary) -> void:
 	subtitle_label.text = "ONLINE • ROUND %d OF %d • PLANNING" % [snapshot.round, snapshot.total_rounds]
-	_add_online_meters(snapshot)
 	_online_text("Talk it through. Costs always apply; risk shapes suspicion.")
 	_add_online_plan_cards(snapshot, false)
 	_add_ready_button("Ready to vote")
 
 func _show_online_voting(snapshot: Dictionary) -> void:
 	subtitle_label.text = "ONLINE • ROUND %d • SECRET BALLOT" % snapshot.round
-	_add_online_meters(snapshot)
 	if multiplayer_flow.has_voted():
 		_online_text("Your vote is locked in. Votes stay hidden until everyone has chosen.", Color("62d6a7"))
 	else:
@@ -566,15 +824,18 @@ func _add_online_ability_controls(snapshot: Dictionary) -> void:
 	if not str(private_state.get("ability_details", "")).is_empty():
 		_online_text("YOUR ABILITY: %s" % private_state.ability_details, Color("62d6a7"), 16)
 	if not bool(private_state.get("ability_available", false)):
+		_online_text("ABILITY CHARGE 0/1 • Used", Color("8fa3bf"), 16)
 		return
-	_online_text("ROLE ABILITY • %s" % private_state.ability, Color("f4c95d"), 16)
+	_online_text("ABILITY CHARGE 1/1 • %s" % private_state.ability, Color("f4c95d"), 16)
+	var ability_icon := _ability_icon(private_state.role)
 	if private_state.role == "Hacker":
 		for plan in snapshot.plans:
 			if not GameState.DIGITAL_PLAN_IDS.has(plan.id):
 				continue
 			var target_id: String = plan.id
 			var target_button := Button.new()
-			target_button.text = "Hack %s" % plan.title
+			target_button.text = "%s Hack %s" % [ability_icon, plan.title]
+			target_button.custom_minimum_size = Vector2(0, 60)
 			target_button.pressed.connect(func() -> void:
 				target_button.disabled = true
 				if not multiplayer_flow.use_ability(target_id):
@@ -583,13 +844,23 @@ func _add_online_ability_controls(snapshot: Dictionary) -> void:
 			content.add_child(target_button)
 	else:
 		var ability_button := Button.new()
-		ability_button.text = "Use %s ability" % private_state.role
+		ability_button.text = "%s Use %s ability" % [ability_icon, private_state.role]
+		ability_button.custom_minimum_size = Vector2(0, 60)
 		ability_button.pressed.connect(func() -> void:
 			ability_button.disabled = true
 			if not multiplayer_flow.use_ability():
 				ability_button.disabled = false
 		)
 		content.add_child(ability_button)
+
+func _ability_icon(role: String) -> String:
+	match role:
+		"Hacker": return "⌘"
+		"Driver": return "➜"
+		"Inside Agent": return "◆"
+		"Security Specialist": return "◈"
+		"Fixer": return "✦"
+	return "●"
 
 func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
 	var cards := GridContainer.new()
@@ -623,7 +894,6 @@ func _show_online_resolution(snapshot: Dictionary) -> void:
 	online_sabotage_armed = false
 	var result: Dictionary = snapshot.last_result
 	subtitle_label.text = "ONLINE • ROUND %d • MISSION CONSEQUENCES" % result.round
-	_add_online_meters(snapshot)
 	_online_heading("SUCCESS" if result.success else "FAILURE", Color("62d6a7") if result.success else Color("ef6f6c"), 36)
 	_online_text("Selected plan: %s  •  Deterministic score: %d/100" % [result.plan_title, result.score], Color("e6ebf2"), 22)
 	var tally_parts: Array[String] = []
@@ -654,25 +924,41 @@ func _show_online_accusation(snapshot: Dictionary) -> void:
 		return
 	_online_heading("Who was the Informant?", Color("f4c95d"), 30)
 	_online_text("Your accusation is private. You cannot vote for yourself.", Color("8fa3bf"))
+	var suspects := GridContainer.new()
+	suspects.columns = 2 if size.x < 700 else 3
+	content.add_child(suspects)
 	for seat in snapshot.seats:
 		var suspect_seat: int = seat.seat
 		if suspect_seat == multiplayer_flow.my_seat():
 			continue
 		var accuse := Button.new()
-		accuse.text = "Accuse %s" % seat.name
-		accuse.custom_minimum_size = Vector2(0, 44)
+		var suspect_name: String = seat.name
+		accuse.text = "◉ %s\n%s" % [suspect_name.substr(0, 1).to_upper(), suspect_name]
+		accuse.custom_minimum_size = Vector2(0, 84)
+		accuse.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		accuse.disabled = not multiplayer_flow.can_act()
 		accuse.pressed.connect(func() -> void:
-			accuse.disabled = true
-			if not multiplayer_flow.accuse(suspect_seat):
-				accuse.disabled = false
+			var confirmation := ConfirmationDialog.new()
+			confirmation.title = "Confirm private accusation"
+			confirmation.dialog_text = "Accuse %s of being the Informant?" % suspect_name
+			confirmation.ok_button_text = "Yes, accuse"
+			confirmation.cancel_button_text = "No"
+			add_child(confirmation)
+			confirmation.confirmed.connect(func() -> void:
+				accuse.disabled = true
+				if not multiplayer_flow.accuse(suspect_seat):
+					accuse.disabled = false
+				confirmation.queue_free()
+			)
+			confirmation.canceled.connect(confirmation.queue_free)
+			confirmation.close_requested.connect(confirmation.queue_free)
+			confirmation.popup_centered(Vector2i(340, 200))
 		)
-		content.add_child(accuse)
+		suspects.add_child(accuse)
 
 func _show_online_recap(snapshot: Dictionary) -> void:
 	var outcome: Dictionary = snapshot.outcome
 	subtitle_label.text = "ONLINE • MISSION COMPLETE • %d ROUND%s RESOLVED" % [outcome.history.size(), "" if outcome.history.size() == 1 else "S"]
-	_add_online_meters(snapshot)
 	var winner: String = outcome.winner
 	var headline := "THE CREW LOSES"
 	match winner:
@@ -802,18 +1088,36 @@ func _show_role_reveal() -> void:
 	content.add_child(role_card)
 
 	var action_button := Button.new()
-	action_button.text = "Reveal my role"
+	action_button.text = "Hold to reveal my role"
+	action_button.custom_minimum_size = Vector2(0, 72)
 	content.add_child(action_button)
-
-	action_button.pressed.connect(_handle_role_reveal.bind(player, role_card, action_button))
-
-func _handle_role_reveal(player: Dictionary, role_card: Label, action_button: Button) -> void:
-	if not role_is_visible:
+	var next_button := Button.new()
+	next_button.text = "Hide and pass"
+	next_button.disabled = true
+	content.add_child(next_button)
+	var hold_timer := Timer.new()
+	hold_timer.one_shot = true
+	hold_timer.wait_time = 0.45
+	action_button.add_child(hold_timer)
+	action_button.button_down.connect(func() -> void:
 		role_is_visible = true
-		role_card.text = "%s\n\n%s" % [player.role, player.ability]
-		action_button.text = "Hide and pass"
-		return
+		hold_timer.start()
+	)
+	action_button.button_up.connect(func() -> void:
+		role_is_visible = false
+		hold_timer.stop()
+		if is_instance_valid(role_card):
+			role_card.text = "ROLE HIDDEN"
+	)
+	hold_timer.timeout.connect(func() -> void:
+		if role_is_visible and is_instance_valid(role_card):
+			role_card.text = "%s\n\n%s" % [player.role, player.ability]
+			next_button.disabled = false
+			_vibrate(35)
+	)
+	next_button.pressed.connect(_advance_role_reveal)
 
+func _advance_role_reveal() -> void:
 	role_is_visible = false
 	reveal_index += 1
 	if reveal_index >= game.players.size():
@@ -871,18 +1175,21 @@ func _add_meters() -> void:
 	meters.add_child(_make_meter("SUSPICION", game.suspicion, GameState.MAX_SUSPICION, Color("ef6f6c")))
 	meters.add_child(_make_meter("RESOURCES", game.resources, GameState.MAX_RESOURCES, Color("f4c95d")))
 
-func _make_meter(label_text: String, value: int, maximum: int, color: Color) -> VBoxContainer:
+func _make_meter(label_text: String, value: int, maximum: int, color: Color, compact: bool = false) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var label := Label.new()
-	label.text = "%s  %d/%d" % [label_text, value, maximum]
+	label.text = "%s\n%d/%d" % [label_text, value, maximum] if compact else "%s  %d/%d" % [label_text, value, maximum]
+	if compact:
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", color)
 	box.add_child(label)
 	var bar := ProgressBar.new()
 	bar.max_value = maximum
 	bar.value = value
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(0, 16)
+	bar.custom_minimum_size = Vector2(0, 10 if compact else 16)
 	box.add_child(bar)
 	return box
 
@@ -974,20 +1281,24 @@ func _add_local_ability_controls(voter: Dictionary) -> void:
 	if int(voter.get("ability_round", -1)) == game.current_round and not str(voter.get("ability_details", "")).is_empty():
 		_online_text("YOUR ABILITY: %s" % voter.ability_details, Color("62d6a7"), 16)
 	if not game.ability_available(voter.id):
+		_online_text("ABILITY CHARGE 0/1 • Used", Color("8fa3bf"), 16)
 		return
-	_online_text("ROLE ABILITY • %s" % voter.ability, Color("f4c95d"), 16)
+	_online_text("ABILITY CHARGE 1/1 • %s" % voter.ability, Color("f4c95d"), 16)
+	var ability_icon := _ability_icon(voter.role)
 	if voter.role == "Hacker":
 		for plan in game.get_current_plans():
 			if not GameState.DIGITAL_PLAN_IDS.has(plan.id):
 				continue
 			var target_id: String = plan.id
 			var target_button := Button.new()
-			target_button.text = "Hack %s" % plan.title
+			target_button.text = "%s Hack %s" % [ability_icon, plan.title]
+			target_button.custom_minimum_size = Vector2(0, 60)
 			target_button.pressed.connect(_use_local_ability.bind(voter.id, target_id))
 			content.add_child(target_button)
 	else:
 		var ability_button := Button.new()
-		ability_button.text = "Use %s ability" % voter.role
+		ability_button.text = "%s Use %s ability" % [ability_icon, voter.role]
+		ability_button.custom_minimum_size = Vector2(0, 60)
 		ability_button.pressed.connect(_use_local_ability.bind(voter.id, ""))
 		content.add_child(ability_button)
 
@@ -1098,13 +1409,34 @@ func _show_accusation() -> void:
 	privacy.add_theme_color_override("font_color", Color("8fa3bf"))
 	content.add_child(privacy)
 
+	var suspects := GridContainer.new()
+	suspects.columns = 2 if size.x < 700 else 3
+	content.add_child(suspects)
 	for suspect in game.players:
 		if suspect.id == voter.id:
 			continue
+		var suspect_name: String = suspect.name
+		var suspect_id: int = suspect.id
 		var accuse_button := Button.new()
-		accuse_button.text = "Accuse %s" % suspect.name
-		accuse_button.pressed.connect(_cast_accusation.bind(voter.id, suspect.id))
-		content.add_child(accuse_button)
+		accuse_button.text = "◉ %s\n%s" % [suspect_name.substr(0, 1).to_upper(), suspect_name]
+		accuse_button.custom_minimum_size = Vector2(0, 84)
+		accuse_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		accuse_button.pressed.connect(func() -> void:
+			var confirmation := ConfirmationDialog.new()
+			confirmation.title = "Confirm private accusation"
+			confirmation.dialog_text = "Accuse %s of being the Informant?" % suspect_name
+			confirmation.ok_button_text = "Yes, accuse"
+			confirmation.cancel_button_text = "No"
+			add_child(confirmation)
+			confirmation.confirmed.connect(func() -> void:
+				confirmation.queue_free()
+				_cast_accusation(voter.id, suspect_id)
+			)
+			confirmation.canceled.connect(confirmation.queue_free)
+			confirmation.close_requested.connect(confirmation.queue_free)
+			confirmation.popup_centered(Vector2i(340, 200))
+		)
+		suspects.add_child(accuse_button)
 
 func _cast_accusation(voter_id: int, suspect_id: int) -> void:
 	var result := game.cast_accusation_vote(voter_id, suspect_id)
