@@ -385,13 +385,13 @@ func _clear_recovery() -> void:
 	reconnect_token = ""
 	reconnect_room_code = ""
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("try { sessionStorage.removeItem('%s'); } catch (e) {}" % RECOVERY_STORAGE_KEY)
+		JavaScriptBridge.eval("try { sessionStorage.removeItem('%s'); if (window.__promptHeistReleaseSeat) window.__promptHeistReleaseSeat(); } catch (e) {}" % RECOVERY_STORAGE_KEY)
 
 func _save_recovery() -> void:
 	if not OS.has_feature("web"):
 		return
 	var serialized := JSON.stringify({"room_code": reconnect_room_code, "reconnect_token": reconnect_token})
-	JavaScriptBridge.eval("try { sessionStorage.setItem('%s', %s); } catch (e) {}" % [RECOVERY_STORAGE_KEY, JSON.stringify(serialized)])
+	JavaScriptBridge.eval("try { sessionStorage.setItem('%s', %s); if (window.__promptHeistClaimSeat) window.__promptHeistClaimSeat(); } catch (e) {}" % [RECOVERY_STORAGE_KEY, JSON.stringify(serialized)])
 
 func _load_recovery() -> void:
 	if not OS.has_feature("web"):
