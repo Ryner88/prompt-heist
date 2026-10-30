@@ -824,6 +824,7 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 	if bool(multiplayer_flow.match_private.get("sabotage_available", false)):
 		var sabotage := CheckBox.new()
 		sabotage.text = "Sabotage (+2 suspicion)"
+		sabotage.custom_minimum_size = Vector2(0, 56)
 		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
 		sabotage.button_pressed = online_sabotage_armed
 		sabotage.toggled.connect(func(pressed: bool) -> void: online_sabotage_armed = pressed)
@@ -888,6 +889,7 @@ func _add_online_plan_cards(snapshot: Dictionary, voting: bool) -> void:
 		if voting:
 			var choose := Button.new()
 			choose.text = "Vote for this plan"
+			choose.custom_minimum_size = Vector2(0, 56)
 			choose.disabled = not multiplayer_flow.can_act()
 			var plan_id: String = plan.id
 			choose.pressed.connect(func() -> void:
@@ -1254,6 +1256,7 @@ func _make_plan_card(plan: Dictionary, voting: bool) -> VBoxContainer:
 	if voting:
 		var choose := Button.new()
 		choose.text = "Vote for this plan"
+		choose.custom_minimum_size = Vector2(0, 56)
 		choose.pressed.connect(_cast_vote.bind(plan.id))
 		card.add_child(choose)
 	return card
@@ -1278,6 +1281,7 @@ func _show_voting() -> void:
 	if game.is_informant(voter.id) and not game.informant_sabotage_used:
 		var sabotage := Button.new()
 		sabotage.text = "Sabotage this round"
+		sabotage.custom_minimum_size = Vector2(0, 56)
 		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
 		sabotage.pressed.connect(_arm_sabotage.bind(voter.id, sabotage))
 		content.add_child(sabotage)
