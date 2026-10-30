@@ -43,10 +43,13 @@ var discussion_timer: Timer
 var countdown_label: Label
 var countdown_phase_key := ""
 var countdown_started_ms := 0
+var active_overlay: ColorRect
 const NOTE_TAGS := ["Suspicious action", "Blew resources", "Failed ability"]
 
 func _ready() -> void:
 	rng.randomize()
+	if OS.has_feature("web"):
+		_initialize_web_keyboard_attributes()
 	_build_shell()
 	_show_mode_selection()
 	if OS.has_feature("web"):
@@ -265,6 +268,9 @@ func _render_multiplayer_state() -> void:
 		screen_key += ":%s:%d" % [multiplayer_flow.match_snapshot.phase, multiplayer_flow.match_snapshot.round]
 	if screen_key != online_screen_key:
 		online_scroll_reset_pending = true
+		if active_overlay != null and is_instance_valid(active_overlay):
+			active_overlay.queue_free()
+			active_overlay = null
 	var previous_scroll := content_scroll.scroll_vertical if not online_scroll_reset_pending else 0
 	online_screen_key = screen_key
 	_clear_content()
@@ -374,6 +380,7 @@ func _show_online_entry(pending: bool) -> void:
 		online_name = value
 		_refresh_online_entry_buttons()
 	)
+	online_name_input.focus_entered.connect(_configure_web_name_input)
 	content.add_child(online_name_input)
 
 	online_join_button = Button.new()
@@ -415,7 +422,25 @@ func _clean_room_code(value: String) -> String:
 
 func _configure_web_code_input() -> void:
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("if (document.activeElement instanceof HTMLInputElement) { document.activeElement.setAttribute('autocorrect', 'off'); document.activeElement.setAttribute('autocapitalize', 'characters'); document.activeElement.setAttribute('spellcheck', 'false'); }")
+		JavaScriptBridge.eval("window.__promptHeistKeyboardMode = 'code'; window.__promptHeistApplyKeyboardMode(); setTimeout(window.__promptHeistApplyKeyboardMode, 100)")
+
+func _configure_web_name_input() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.__promptHeistKeyboardMode = 'name'; window.__promptHeistApplyKeyboardMode(); setTimeout(window.__promptHeistApplyKeyboardMode, 100)")
+
+func _initialize_web_keyboard_attributes() -> void:
+	JavaScriptBridge.eval("""
+		window.__promptHeistKeyboardMode = 'code';
+		window.__promptHeistApplyKeyboardMode = () => {
+			const input = document.activeElement;
+			if (!input || !(input instanceof HTMLInputElement || input.isContentEditable)) return;
+			const code = window.__promptHeistKeyboardMode === 'code';
+			input.setAttribute('autocorrect', code ? 'off' : 'on');
+			input.setAttribute('autocapitalize', code ? 'characters' : 'sentences');
+			input.setAttribute('spellcheck', code ? 'false' : 'true');
+		};
+		document.addEventListener('focusin', window.__promptHeistApplyKeyboardMode, true);
+	""")
 
 func _refresh_online_entry_buttons() -> void:
 	if online_create_button == null or not is_instance_valid(online_create_button):
@@ -651,14 +676,74 @@ func _maybe_show_complication(snapshot: Dictionary) -> void:
 		return
 	shown_complication_round = int(result.round)
 	_vibrate(90)
-	var alert := AcceptDialog.new()
-	alert.title = "Hidden complication triggered"
-	alert.dialog_text = result.consequence
-	alert.ok_button_text = "Acknowledge"
-	add_child(alert)
-	alert.confirmed.connect(alert.queue_free)
-	alert.close_requested.connect(alert.queue_free)
-	alert.popup_centered(Vector2i(340, 240))
+	_show_mobile_overlay("Hidden complication triggered", "%s hit a hidden complication. Read the full consequence on the resolution screen." % result.plan_title, "Acknowledge", Callable())
+
+func _show_mobile_overlay(heading: String, message: String, confirm_text: String, on_confirm: Callable, cancel_text: String = "") -> void:
+	if active_overlay != null and is_instance_valid(active_overlay):
+		active_overlay.queue_free()
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.02, 0.03, 0.06, 0.93)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	active_overlay = overlay
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(minf(size.x - 32, 360), 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("1b2638")
+	style.border_color = Color("f4c95d")
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+	var padding := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 18)
+	panel.add_child(padding)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	padding.add_child(body)
+	var title_text := Label.new()
+	title_text.text = heading
+	title_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_text.add_theme_font_size_override("font_size", 24)
+	title_text.add_theme_color_override("font_color", Color("f4c95d"))
+	body.add_child(title_text)
+	var details := Label.new()
+	details.text = message
+	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_theme_font_size_override("font_size", 18)
+	body.add_child(details)
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 12)
+	body.add_child(buttons)
+	var dismiss := func() -> void:
+		if is_instance_valid(overlay):
+			overlay.queue_free()
+		if active_overlay == overlay:
+			active_overlay = null
+	if not cancel_text.is_empty():
+		var cancel := Button.new()
+		cancel.text = cancel_text
+		cancel.custom_minimum_size = Vector2(0, 52)
+		cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cancel.pressed.connect(dismiss)
+		buttons.add_child(cancel)
+	var confirm := Button.new()
+	confirm.text = confirm_text
+	confirm.custom_minimum_size = Vector2(0, 52)
+	confirm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	confirm.pressed.connect(func() -> void:
+		dismiss.call()
+		if on_confirm.is_valid():
+			on_confirm.call()
+	)
+	buttons.add_child(confirm)
 
 func _add_accusation_notes(snapshot: Dictionary) -> void:
 	_online_heading("Private deduction notes", Color("f4c95d"), 21)
@@ -822,12 +907,16 @@ func _show_online_voting(snapshot: Dictionary) -> void:
 		_online_text("Choose one plan. Votes stay hidden until everyone has chosen.")
 	_add_online_ability_controls(snapshot)
 	if bool(multiplayer_flow.match_private.get("sabotage_available", false)):
-		var sabotage := CheckBox.new()
-		sabotage.text = "Sabotage (+2 suspicion)"
-		sabotage.custom_minimum_size = Vector2(0, 56)
+		var sabotage := Button.new()
+		sabotage.toggle_mode = true
+		sabotage.text = "Sabotage armed • +2 suspicion" if online_sabotage_armed else "Arm sabotage • +2 suspicion"
+		sabotage.custom_minimum_size = Vector2(0, 64)
 		sabotage.add_theme_color_override("font_color", Color("ef6f6c"))
 		sabotage.button_pressed = online_sabotage_armed
-		sabotage.toggled.connect(func(pressed: bool) -> void: online_sabotage_armed = pressed)
+		sabotage.toggled.connect(func(pressed: bool) -> void:
+			online_sabotage_armed = pressed
+			sabotage.text = "Sabotage armed • +2 suspicion" if pressed else "Arm sabotage • +2 suspicion"
+		)
 		content.add_child(sabotage)
 		_online_text("Available once per match, before your vote.", Color("ef6f6c"), 16)
 	_add_online_plan_cards(snapshot, not multiplayer_flow.has_voted())
@@ -954,21 +1043,11 @@ func _show_online_accusation(snapshot: Dictionary) -> void:
 		accuse.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		accuse.disabled = not multiplayer_flow.can_act()
 		accuse.pressed.connect(func() -> void:
-			var confirmation := ConfirmationDialog.new()
-			confirmation.title = "Confirm private accusation"
-			confirmation.dialog_text = "Accuse %s of being the Informant?" % suspect_name
-			confirmation.ok_button_text = "Yes, accuse"
-			confirmation.cancel_button_text = "No"
-			add_child(confirmation)
-			confirmation.confirmed.connect(func() -> void:
+			_show_mobile_overlay("Confirm private accusation", "Accuse %s of being the Informant?" % suspect_name, "Yes, accuse", func() -> void:
 				accuse.disabled = true
 				if not multiplayer_flow.accuse(suspect_seat):
 					accuse.disabled = false
-				confirmation.queue_free()
-			)
-			confirmation.canceled.connect(confirmation.queue_free)
-			confirmation.close_requested.connect(confirmation.queue_free)
-			confirmation.popup_centered(Vector2i(340, 200))
+			, "No")
 		)
 		suspects.add_child(accuse)
 
@@ -1440,19 +1519,9 @@ func _show_accusation() -> void:
 		accuse_button.custom_minimum_size = Vector2(0, 84)
 		accuse_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		accuse_button.pressed.connect(func() -> void:
-			var confirmation := ConfirmationDialog.new()
-			confirmation.title = "Confirm private accusation"
-			confirmation.dialog_text = "Accuse %s of being the Informant?" % suspect_name
-			confirmation.ok_button_text = "Yes, accuse"
-			confirmation.cancel_button_text = "No"
-			add_child(confirmation)
-			confirmation.confirmed.connect(func() -> void:
-				confirmation.queue_free()
+			_show_mobile_overlay("Confirm private accusation", "Accuse %s of being the Informant?" % suspect_name, "Yes, accuse", func() -> void:
 				_cast_accusation(voter.id, suspect_id)
-			)
-			confirmation.canceled.connect(confirmation.queue_free)
-			confirmation.close_requested.connect(confirmation.queue_free)
-			confirmation.popup_centered(Vector2i(340, 200))
+			, "No")
 		)
 		suspects.add_child(accuse_button)
 
