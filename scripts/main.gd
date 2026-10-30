@@ -125,6 +125,7 @@ func _clear_content() -> void:
 	content.visible = true
 	privacy_notice.visible = false
 	for child in content.get_children():
+		content.remove_child(child)
 		child.queue_free()
 	status_label.text = ""
 
@@ -270,6 +271,7 @@ func _render_multiplayer_state() -> void:
 	status_label.text = multiplayer_flow.feedback
 	match_dashboard.visible = multiplayer_flow.state == MultiplayerFlowScript.State.MATCH
 	for child in match_dashboard.get_children():
+		match_dashboard.remove_child(child)
 		child.queue_free()
 	match multiplayer_flow.state:
 		MultiplayerFlowScript.State.CONNECTING:
@@ -287,6 +289,8 @@ func _render_multiplayer_state() -> void:
 	if multiplayer_flow.state == MultiplayerFlowScript.State.MATCH:
 		content.visible = not privacy_mode
 		privacy_notice.visible = privacy_mode
+		if privacy_mode:
+			subtitle_label.text = "ONLINE • PRIVACY SHROUD"
 	if online_scroll_reset_pending:
 		call_deferred("_finish_online_scroll_reset", screen_key)
 	elif previous_scroll > 0:
@@ -532,6 +536,16 @@ func _show_online_match() -> void:
 		_maybe_show_complication(snapshot)
 
 func _add_match_dashboard(snapshot: Dictionary) -> void:
+	if privacy_mode:
+		var uncover := Button.new()
+		uncover.text = "Privacy: ON • Show match"
+		uncover.custom_minimum_size = Vector2(0, 48)
+		uncover.pressed.connect(func() -> void:
+			privacy_mode = false
+			_render_multiplayer_state()
+		)
+		match_dashboard.add_child(uncover)
+		return
 	var top := HBoxContainer.new()
 	match_dashboard.add_child(top)
 	var phase: String = snapshot.phase

@@ -4,6 +4,8 @@ const MainScript = preload("res://scripts/main.gd")
 const RoomNetworkClientScript = preload("res://scripts/room_network_client.gd")
 const MultiplayerFlowScript = preload("res://scripts/multiplayer_flow.gd")
 
+var failures := 0
+
 func _init() -> void:
 	call_deferred("_run")
 
@@ -43,6 +45,7 @@ func _run() -> void:
 	main.privacy_mode = true
 	main._render_multiplayer_state()
 	_assert(not main.content.visible and main.privacy_notice.visible, "Privacy shroud covers private voting screen")
+	_assert(main.subtitle_label.text == "ONLINE • PRIVACY SHROUD" and main.match_dashboard.find_children("*", "ProgressBar", true, false).is_empty(), "Privacy shroud covers phase and meters")
 	main.privacy_mode = false
 	main.notes_open = true
 	main._render_multiplayer_state()
@@ -50,7 +53,7 @@ func _run() -> void:
 	var note_buttons: Array = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "+ Suspicious action")
 	_assert(not note_buttons.is_empty(), "One-tap deduction tags are available")
 	note_buttons[0].pressed.emit()
-	_assert(main.accusation_notes.size() == 1, "A deduction tag stays in local match state")
+	_assert(main.accusation_notes.get(0, []) == ["Suspicious action"], "A deduction tag stays on the selected suspect")
 	flow.state = MultiplayerFlowScript.State.RECOVERING
 	main._on_online_state_changed(flow.state)
 	_assert(main.accusation_notes.size() == 1, "A brief reconnect preserves local notes")
@@ -93,16 +96,18 @@ func _run() -> void:
 	_assert(local_role_card != null and local_reveal != null, "Pass-and-play role starts covered")
 	local_reveal.button_down.emit()
 	await create_timer(0.5).timeout
-	_assert(local_role_card.text.contains(main.game.players[0].role), "Pass-and-play hold reveals only current role")
+	_assert(local_role_card.text == "%s\n\n%s" % [main.game.players[0].role, main.game.players[0].ability], "Pass-and-play hold reveals only current role and ability")
 	local_reveal.button_up.emit()
 	_assert(local_role_card.text == "ROLE HIDDEN", "Pass-and-play release covers role")
 	main.queue_free()
 	client.queue_free()
 	flow.queue_free()
-	print("Mobile UI smoke test passed")
-	quit(0)
+	if failures == 0:
+		print("Mobile UI smoke test passed")
+	quit(1 if failures > 0 else 0)
 
 func _assert(value: bool, description: String) -> void:
 	if not value:
+		failures += 1
 		push_error(description)
 		quit(1)
