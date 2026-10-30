@@ -44,12 +44,16 @@ var countdown_label: Label
 var countdown_phase_key := ""
 var countdown_started_ms := 0
 var active_overlay: ColorRect
+var native_text_fields: Dictionary = {}
+var native_text_callbacks: Array[JavaScriptObject] = []
+var native_text_update_seconds := 0.0
 const NOTE_TAGS := ["Suspicious action", "Blew resources", "Failed ability"]
 
 func _ready() -> void:
 	rng.randomize()
 	if OS.has_feature("web"):
 		_initialize_web_keyboard_attributes()
+		_initialize_web_native_text_inputs()
 		_initialize_web_tab_probe()
 	_build_shell()
 	if OS.has_feature("web"):
@@ -67,6 +71,15 @@ func _ready() -> void:
 			_show_online_multiplayer()
 			return
 	_show_mode_selection()
+
+func _process(delta: float) -> void:
+	if native_text_fields.is_empty():
+		return
+	native_text_update_seconds += delta
+	if native_text_update_seconds < 0.05:
+		return
+	native_text_update_seconds = 0.0
+	_update_web_native_text_inputs()
 
 func _initialize_web_tab_probe() -> void:
 	JavaScriptBridge.eval("""
@@ -188,6 +201,7 @@ func _build_shell() -> void:
 	page.add_child(status_label)
 
 func _clear_content() -> void:
+	_clear_web_native_text_inputs()
 	content_scroll.scroll_vertical = 0
 	content.visible = true
 	privacy_notice.visible = false
@@ -222,6 +236,7 @@ func _show_mode_selection() -> void:
 	)
 	quick_code.focus_entered.connect(_configure_web_code_input)
 	content.add_child(quick_code)
+	_register_web_native_text_input("quick_code", quick_code, true)
 	var online_button := Button.new()
 	online_button.text = "Join online room"
 	online_button.custom_minimum_size = Vector2(0, 56)
@@ -433,6 +448,7 @@ func _show_online_entry(pending: bool) -> void:
 	)
 	code_input.focus_entered.connect(_configure_web_code_input)
 	content.add_child(code_input)
+	_register_web_native_text_input("room_code", code_input, true)
 	var name_label := Label.new()
 	name_label.text = "YOUR DISPLAY NAME"
 	content.add_child(name_label)
@@ -448,6 +464,7 @@ func _show_online_entry(pending: bool) -> void:
 	)
 	online_name_input.focus_entered.connect(_configure_web_name_input)
 	content.add_child(online_name_input)
+	_register_web_native_text_input("display_name", online_name_input, false)
 
 	online_join_button = Button.new()
 	online_join_button.text = "Joining room…" if pending else "Join Room"
@@ -500,6 +517,7 @@ func _initialize_web_keyboard_attributes() -> void:
 		window.__promptHeistApplyKeyboardMode = () => {
 			const input = document.activeElement;
 			if (!input || !(input instanceof HTMLInputElement || input.isContentEditable)) return;
+			if (input.classList.contains('prompt-heist-native-input')) return;
 			const code = window.__promptHeistKeyboardMode === 'code';
 			input.setAttribute('autocorrect', code ? 'off' : 'on');
 			input.setAttribute('autocapitalize', code ? 'characters' : 'sentences');
@@ -507,6 +525,142 @@ func _initialize_web_keyboard_attributes() -> void:
 		};
 		document.addEventListener('focusin', window.__promptHeistApplyKeyboardMode, true);
 	""")
+
+func _initialize_web_native_text_inputs() -> void:
+	JavaScriptBridge.eval("""
+		window.__promptHeistNativeText = (() => {
+			const enabled = window.matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+			const fields = new Map();
+			const canvas = document.getElementById('canvas');
+			if (enabled) {
+				const style = document.createElement('style');
+				style.textContent = '.prompt-heist-native-input::placeholder { color: #8fa3bf; opacity: 1; }';
+				document.head.appendChild(style);
+			}
+			if (enabled && canvas) {
+				canvas.addEventListener('pointerdown', () => {
+					if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+				});
+			}
+			return {
+				enabled,
+				add(id, value, placeholder, maxLength, code, onInput, onSubmit) {
+					if (!enabled) return;
+					this.remove(id);
+					const input = document.createElement('input');
+					input.type = 'text';
+					input.id = 'prompt-heist-' + id;
+					input.className = 'prompt-heist-native-input';
+					input.value = value;
+					input.placeholder = placeholder;
+					input.maxLength = maxLength;
+					input.autocomplete = 'off';
+					input.setAttribute('autocorrect', code ? 'off' : 'on');
+					input.setAttribute('autocapitalize', code ? 'characters' : 'sentences');
+					input.spellcheck = !code;
+					input.setAttribute('enterkeyhint', 'done');
+					input.setAttribute('aria-label', code ? 'Room code' : (id === 'local_name' ? 'Player name' : 'Your display name'));
+					input.style.cssText = 'display:none;position:fixed;z-index:20;box-sizing:border-box;margin:0;border:1px solid #303a50;border-radius:2px;background:#171b25;color:#e6ebf2;padding:0 6px;outline:none;font-family:Arial,sans-serif;';
+					input.addEventListener('input', () => onInput(input.value));
+					input.addEventListener('keydown', event => {
+						if (event.key === 'Enter') { event.preventDefault(); input.blur(); onSubmit(); }
+					});
+					document.body.appendChild(input);
+					fields.set(id, {input, code});
+				},
+				setValue(id, value) {
+					const field = fields.get(id);
+					if (field && field.input.value !== value) field.input.value = value;
+				},
+				remove(id) {
+					const field = fields.get(id);
+					if (field) { field.input.remove(); fields.delete(id); }
+				},
+				clear() {
+					for (const id of [...fields.keys()]) this.remove(id);
+				},
+				update(layout, viewportWidth, viewportHeight) {
+					if (!enabled || !canvas) return;
+					const bounds = canvas.getBoundingClientRect();
+					const scaleX = bounds.width / viewportWidth;
+					const scaleY = bounds.height / viewportHeight;
+					for (const item of layout) {
+						const field = fields.get(item.id);
+						if (!field) continue;
+						const input = field.input;
+						input.style.display = item.visible ? 'block' : 'none';
+						if (!item.visible) continue;
+						input.style.left = (bounds.left + item.x * scaleX) + 'px';
+						input.style.top = (bounds.top + item.y * scaleY) + 'px';
+						input.style.width = (item.w * scaleX) + 'px';
+						input.style.height = (item.h * scaleY) + 'px';
+						input.style.fontSize = (field.code ? 30 * scaleY : 16 * scaleY) + 'px';
+						input.style.clipPath = 'inset(' +
+							Math.max(0, item.clipTop * scaleY) + 'px 0px ' +
+							Math.max(0, item.clipBottom * scaleY) + 'px 0px)';
+						input.disabled = !item.editable;
+					}
+				}
+			};
+		})();
+	""")
+
+func _register_web_native_text_input(id: String, control: LineEdit, is_code: bool) -> void:
+	if not OS.has_feature("web") or not bool(JavaScriptBridge.eval("window.__promptHeistNativeText.enabled")):
+		return
+	var callback := JavaScriptBridge.create_callback(func(args: Array) -> void:
+		if not is_instance_valid(control):
+			return
+		var value := str(args[0])
+		if is_code:
+			value = _clean_room_code(value)
+			online_room_code = value
+		elif id == "display_name":
+			online_name = value
+		control.text = value
+		control.caret_column = value.length()
+		_refresh_online_entry_buttons()
+		JavaScriptBridge.get_interface("__promptHeistNativeText").setValue(id, value)
+	)
+	var submit_callback := JavaScriptBridge.create_callback(func(_args: Array) -> void:
+		if id == "local_name" and is_instance_valid(control):
+			_add_player()
+	)
+	native_text_callbacks.append(callback)
+	native_text_callbacks.append(submit_callback)
+	native_text_fields[id] = control
+	JavaScriptBridge.get_interface("__promptHeistNativeText").add(id, control.text, control.placeholder_text, control.max_length, is_code, callback, submit_callback)
+	native_text_update_seconds = 1.0
+
+func _clear_web_native_text_inputs() -> void:
+	if native_text_fields.is_empty():
+		return
+	if OS.has_feature("web"):
+		JavaScriptBridge.get_interface("__promptHeistNativeText").clear()
+	native_text_fields.clear()
+	native_text_callbacks.clear()
+
+func _update_web_native_text_inputs() -> void:
+	var clip := content_scroll.get_global_rect()
+	var layout: Array[Dictionary] = []
+	for id in native_text_fields:
+		var control: LineEdit = native_text_fields[id]
+		if not is_instance_valid(control):
+			continue
+		var rect := control.get_global_rect()
+		layout.append({
+			"id": id,
+			"x": rect.position.x,
+			"y": rect.position.y,
+			"w": rect.size.x,
+			"h": rect.size.y,
+			"clipTop": maxf(0.0, clip.position.y - rect.position.y),
+			"clipBottom": maxf(0.0, rect.end.y - clip.end.y),
+			"visible": control.is_visible_in_tree() and rect.intersects(clip),
+			"editable": control.editable,
+		})
+	var viewport_size := get_viewport_rect().size
+	JavaScriptBridge.eval("window.__promptHeistNativeText.update(%s, %s, %s)" % [JSON.stringify(layout), str(viewport_size.x), str(viewport_size.y)])
 
 func _refresh_online_entry_buttons() -> void:
 	if online_create_button == null or not is_instance_valid(online_create_button):
@@ -1176,6 +1330,7 @@ func _show_lobby() -> void:
 	name_input.max_length = 18
 	name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	entry_row.add_child(name_input)
+	_register_web_native_text_input("local_name", name_input, false)
 
 	var add_button := Button.new()
 	add_button.text = "Add player"
@@ -1212,6 +1367,8 @@ func _add_player() -> void:
 		status_label.text = result.error
 		return
 	name_input.clear()
+	if OS.has_feature("web") and native_text_fields.has("local_name"):
+		JavaScriptBridge.get_interface("__promptHeistNativeText").setValue("local_name", "")
 	status_label.text = ""
 	_refresh_roster()
 	name_input.grab_focus()
