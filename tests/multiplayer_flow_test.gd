@@ -31,13 +31,14 @@ func run() -> void:
 	_test_authoritative_lobby_progression_and_full_error()
 	_test_disconnect_and_local_navigation()
 	_test_recovery_and_acknowledged_leave()
+	_test_expired_recovery_returns_to_entry()
 	_test_match_progression_and_abandonment()
 	_test_online_controls_recover_after_match_and_start_error()
 	allocated_nodes.reverse()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("MultiplayerFlow tests passed: 8 cases")
+		print("MultiplayerFlow tests passed: 9 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -136,6 +137,23 @@ func _test_recovery_and_acknowledged_leave() -> void:
 	_check(leave_request.type == "leave_room", "Explicit leave must send the authoritative leave command")
 	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "command_result", "request_id": leave_request.request_id, "payload": {"command": "leave_room", "room_code": "ABC234"}}), fixture.client.connection_generation)
 	_check(fixture.flow.state == FlowScript.State.DISCONNECTED and not fixture.client.has_recovery(), "Acknowledged leave must clear recovery and return to disconnected state")
+
+func _test_expired_recovery_returns_to_entry() -> void:
+	var fixture := _flow_fixture()
+	fixture.flow.submit_create("Ada")
+	var create_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	fixture.client.ingest_server_text(_command_result(create_request.request_id), fixture.client.connection_generation)
+	fixture.transport.state = WebSocketPeer.STATE_CLOSED
+	fixture.client.poll_transport()
+	_check(fixture.client.has_recovery(), "Disconnected fixture should retain recovery data")
+	fixture.flow.connect_service("ws://127.0.0.1:3000/ws")
+	fixture.transport.state = WebSocketPeer.STATE_OPEN
+	fixture.client.poll_transport()
+	_check(fixture.flow.state == FlowScript.State.RECOVERING, "Saved seat should enter recovery")
+	var resume_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
+	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "error", "request_id": resume_request.request_id, "payload": {"code": "invalid_reconnect"}}), fixture.client.connection_generation)
+	_check(fixture.flow.state == FlowScript.State.ENTRY and not fixture.client.has_recovery(), "Expired recovery must offer create and join with no stale token")
+	_check(fixture.flow.feedback.contains("expired"), "Expired recovery must explain what happened")
 
 func _test_match_progression_and_abandonment() -> void:
 	var contract: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/match_contract.json"))

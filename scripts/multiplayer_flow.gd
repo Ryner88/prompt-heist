@@ -147,7 +147,7 @@ func has_accused() -> bool:
 	return match_private.get("accusation") != null
 
 func _on_connected(_generation: int) -> void:
-	if state == State.CONNECTING:
+	if state in [State.CONNECTING, State.RECOVERING]:
 		_set_state(State.ENTRY)
 
 func _on_recovery_started() -> void:

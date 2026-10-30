@@ -47,6 +47,11 @@ var active_overlay: ColorRect
 var native_text_fields: Dictionary = {}
 var native_text_callbacks: Array[JavaScriptObject] = []
 var native_text_update_seconds := 0.0
+var web_visibility_callback: JavaScriptObject
+var web_auto_recovery_queued := false
+var web_auto_recovery_used := false
+var web_startup_complete := false
+var web_saved_seat_blocked_by_tab := false
 const NOTE_TAGS := ["Suspicious action", "Blew resources", "Failed ability"]
 
 func _ready() -> void:
@@ -55,22 +60,28 @@ func _ready() -> void:
 		_initialize_web_keyboard_attributes()
 		_initialize_web_native_text_inputs()
 		_initialize_web_tab_probe()
+		_initialize_web_visibility_recovery()
 	_build_shell()
 	if OS.has_feature("web"):
 		_initialize_multiplayer()
 		if room_client.has_recovery() and await _another_web_tab_has_seat():
+			web_saved_seat_blocked_by_tab = true
 			_show_mode_selection()
 			status_label.text = "This seat is open in another tab. Return to that tab, or close it before reconnecting here."
+			web_startup_complete = true
 			return
 		var linked_code: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('room') || ''")
 		if linked_code is String and RoomProtocolScript.validate_room_code(linked_code) == "":
 			online_room_code = linked_code.to_upper()
 			_show_online_multiplayer()
+			web_startup_complete = true
 			return
 		if room_client.has_recovery():
 			_show_online_multiplayer()
+			web_startup_complete = true
 			return
 	_show_mode_selection()
+	web_startup_complete = true
 
 func _process(delta: float) -> void:
 	if native_text_fields.is_empty():
@@ -80,6 +91,32 @@ func _process(delta: float) -> void:
 		return
 	native_text_update_seconds = 0.0
 	_update_web_native_text_inputs()
+
+func _initialize_web_visibility_recovery() -> void:
+	web_visibility_callback = JavaScriptBridge.create_callback(func(_args: Array) -> void:
+		if bool(JavaScriptBridge.eval("document.visibilityState === 'visible'")):
+			web_auto_recovery_used = false
+			call_deferred("_try_web_auto_recovery")
+	)
+	JavaScriptBridge.get_interface("document").addEventListener("visibilitychange", web_visibility_callback)
+	JavaScriptBridge.get_interface("window").addEventListener("focus", web_visibility_callback)
+
+func _try_web_auto_recovery() -> void:
+	if not web_startup_complete or web_saved_seat_blocked_by_tab or web_auto_recovery_queued or web_auto_recovery_used:
+		return
+	web_auto_recovery_queued = true
+	await get_tree().create_timer(0.25).timeout
+	web_auto_recovery_queued = false
+	if not web_startup_complete or web_saved_seat_blocked_by_tab or web_auto_recovery_used or not is_instance_valid(multiplayer_flow) or not is_instance_valid(room_client):
+		return
+	if multiplayer_flow.state != MultiplayerFlowScript.State.DISCONNECTED or not room_client.has_recovery():
+		return
+	if not bool(JavaScriptBridge.eval("document.visibilityState === 'visible'")):
+		return
+	if online_endpoint.is_empty():
+		return
+	web_auto_recovery_used = true
+	multiplayer_flow.connect_service(online_endpoint)
 
 func _initialize_web_tab_probe() -> void:
 	JavaScriptBridge.eval("""
@@ -290,6 +327,7 @@ func _show_how_to_play() -> void:
 
 func _show_online_multiplayer() -> void:
 	_initialize_multiplayer()
+	web_saved_seat_blocked_by_tab = false
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("window.__promptHeistSeatActive = true; window.__promptHeistClaimSeat()")
 	online_endpoint = _configured_room_endpoint()
@@ -316,6 +354,11 @@ func _initialize_multiplayer() -> void:
 
 func _on_online_state_changed(_state: int) -> void:
 	online_sabotage_armed = false
+	if OS.has_feature("web"):
+		if _state in [MultiplayerFlowScript.State.LOBBY, MultiplayerFlowScript.State.MATCH]:
+			web_auto_recovery_used = false
+		elif _state == MultiplayerFlowScript.State.DISCONNECTED:
+			call_deferred("_try_web_auto_recovery")
 	if _state in [MultiplayerFlowScript.State.ENTRY, MultiplayerFlowScript.State.LOBBY, MultiplayerFlowScript.State.LEAVING]:
 		privacy_mode = false
 		notes_open = false

@@ -97,7 +97,7 @@ python3 -m http.server 8000 --directory builds/web
 
 Then open `http://127.0.0.1:8000/`. This standalone local static server still needs the separate room service at port 3000. The Web preset uses single-threaded output, so basic static hosting does not need cross-origin isolation headers.
 
-The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for two minutes; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. With three or four players, any member can start the online heist from the waiting room.
+The lobby shows only server snapshots. Leave sends an authoritative command and clears the private credential after acknowledgement. A transient disconnect keeps the seat reserved for two minutes; Retry resumes it with a rotated credential. In a Web build, same-tab refresh can recover through `sessionStorage`, and returning to a backgrounded tab automatically retries a saved seat once. An invalid room response or a command left unanswered for 10 seconds closes the connection so the user can retry from a known state. A service restart clears all rooms and credentials. With three or four players, any member can start the online heist from the waiting room.
 
 ## Tests
 
