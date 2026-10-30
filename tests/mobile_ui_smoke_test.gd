@@ -11,6 +11,7 @@ func _init() -> void:
 
 func _run() -> void:
 	var main: Control = MainScript.new()
+	main.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(main)
 	var client: Node = RoomNetworkClientScript.new()
 	root.add_child(client)
@@ -50,6 +51,28 @@ func _run() -> void:
 	main.notes_open = true
 	main._render_multiplayer_state()
 	_assert(main.content.visible and main.match_dashboard.visible, "Dashboard and notes render while voting")
+	flow.match_private = contract.valid_private.informant.payload.duplicate(true)
+	flow.match_private.sabotage_available = true
+	main.notes_open = false
+	main._render_multiplayer_state()
+	var sabotage_buttons: Array = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "Arm sabotage • +2 suspicion")
+	_assert(sabotage_buttons.size() == 1 and sabotage_buttons[0].toggle_mode and sabotage_buttons[0].custom_minimum_size.y >= 60, "Informant sabotage has a large toggle target")
+	sabotage_buttons[0].grab_focus()
+	await process_frame
+	var tap_position: Vector2 = sabotage_buttons[0].get_global_rect().get_center()
+	for pressed in [true, false]:
+		var tap_event := InputEventMouseButton.new()
+		tap_event.button_index = MOUSE_BUTTON_LEFT
+		tap_event.position = tap_position
+		tap_event.global_position = tap_position
+		tap_event.pressed = pressed
+		main.get_viewport().push_input(tap_event, true)
+		await process_frame
+	_assert(main.online_sabotage_armed and sabotage_buttons[0].button_pressed and sabotage_buttons[0].text.begins_with("Sabotage armed"), "Tapping sabotage arms it visibly")
+	flow.match_private = contract.valid_private.crew.payload.duplicate(true)
+	main.online_sabotage_armed = false
+	main.notes_open = true
+	main._render_multiplayer_state()
 	var note_buttons: Array = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "+ Suspicious action")
 	_assert(not note_buttons.is_empty(), "One-tap deduction tags are available")
 	note_buttons[0].pressed.emit()
@@ -64,18 +87,36 @@ func _run() -> void:
 	var suspects: Array = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text.begins_with("◉"))
 	_assert(suspects.size() == 3, "Accusation grid has three other players")
 	suspects[0].pressed.emit()
-	var dialogs: Array = main.find_children("*", "ConfirmationDialog", true, false)
-	_assert(dialogs.size() == 1 and dialogs[0].dialog_text.begins_with("Accuse "), "Accusation requires confirmation")
-	dialogs[0].canceled.emit()
+	var confirmation_overlay: ColorRect = main.active_overlay
+	var confirm_labels: Array = confirmation_overlay.find_children("*", "Label", true, false)
+	var message_labels: Array = confirm_labels.filter(func(label: Label) -> bool: return label.text.begins_with("Accuse "))
 	await process_frame
+	_assert(message_labels.size() == 1 and message_labels[0].is_visible_in_tree() and confirmation_overlay.get_global_rect().encloses(message_labels[0].get_global_rect()), "Accusation confirmation text is visible within the overlay")
+	var cancel_buttons: Array = confirmation_overlay.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "No")
+	_assert(cancel_buttons.size() == 1, "Accusation confirmation has a No control")
+	cancel_buttons[0].pressed.emit()
+	await process_frame
+	suspects = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text.begins_with("◉"))
+	suspects[0].pressed.emit()
+	var yes_buttons: Array = main.active_overlay.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "Yes, accuse")
+	main._render_multiplayer_state()
+	await process_frame
+	yes_buttons[0].pressed.emit()
+	_assert(main.active_overlay == null and main.status_label.text.contains("Could not submit"), "Confirmation handles a same-phase redraw before submission")
 	flow.match_snapshot = contract.valid_public.cooperative_resolution_failed.payload.duplicate(true)
 	main.notes_open = false
 	main._render_multiplayer_state()
-	var alerts: Array = main.find_children("*", "AcceptDialog", true, false)
-	_assert(alerts.size() == 1 and alerts[0].title == "Hidden complication triggered", "Triggered complication requires acknowledgment")
+	var complication_overlay: ColorRect = main.active_overlay
+	var acknowledge: Array = complication_overlay.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "Acknowledge")
+	_assert(acknowledge.size() == 1, "Triggered complication has a visible acknowledgment control")
+	await process_frame
+	var button_bounds: Rect2 = acknowledge[0].get_global_rect()
+	var viewport_bounds: Rect2 = main.get_viewport_rect()
+	_assert(viewport_bounds.encloses(button_bounds), "Complication acknowledgment fits inside the viewport")
 	main._render_multiplayer_state()
-	_assert(main.find_children("*", "AcceptDialog", true, false).size() == 1, "Complication alert is not repeated on room revision")
-	alerts[0].confirmed.emit()
+	_assert(main.active_overlay == complication_overlay, "Complication alert is not repeated on room revision")
+	acknowledge[0].pressed.emit()
+	_assert(main.active_overlay == null, "Acknowledgment clears the complication overlay")
 	flow.state = MultiplayerFlowScript.State.LOBBY
 	main._on_online_state_changed(flow.state)
 	_assert(main.accusation_notes.is_empty(), "Returning to the waiting room clears local notes")
