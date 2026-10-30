@@ -1051,7 +1051,7 @@ func _add_online_presence(snapshot: Dictionary) -> void:
 		if not seat.connected:
 			offline.append(seat.name)
 	if not offline.is_empty():
-		lines.append("Reconnecting: %s. Their seat is held for 30 seconds." % ", ".join(offline))
+		lines.append("Reconnecting: %s. Their seat is held for 2 minutes." % ", ".join(offline))
 	if not lines.is_empty():
 		_online_text("\n".join(lines), Color("8fa3bf"), 15)
 	var leave := Button.new()

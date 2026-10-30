@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { RECONNECT_GRACE_MS } from "../src/constants.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { command, connectClient, startTestServer } from "./helpers.js";
 
@@ -300,7 +301,7 @@ test("a permanent departure abandons the heist without revealing roles and reope
 
   await dee.close();
   await latest(ada, "match_snapshot", (payload) => payload.seats[3].connected === false);
-  now = 30_000;
+  now = RECONNECT_GRACE_MS;
   const abandoned = await Promise.all([ada, ben, cy].map((client) => latest(client, "match_snapshot", phaseIs("abandoned"))));
   for (const view of abandoned) {
     assert.match(view.payload.notice, /Dee left the room/);

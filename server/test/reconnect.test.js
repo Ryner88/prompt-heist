@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { RECONNECT_GRACE_MS } from "../src/constants.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { command, connectClient, startTestServer } from "./helpers.js";
 
 test("grace cutoff is exclusive and releases reserved seats at the exact deadline", () => {
+  assert.equal(RECONNECT_GRACE_MS, 120_000);
   let now = 0;
   const registry = new RoomRegistry({ codeGenerator: () => "ABC234", clock: () => now });
   const created = registry.createRoom("Ada", "old", { reconnect: true });
   registry.removeConnection("old");
   assert.equal(registry.publicSnapshot("ABC234").player_count, 1);
-  now = 29_999;
+  now = 30_000;
+  assert.equal(registry.publicSnapshot("ABC234").player_count, 1, "the old cutoff must not evict the seat");
+  now = RECONNECT_GRACE_MS - 1;
   const resumed = registry.resumeRoom("ABC234", created.reconnectToken, "new");
   assert.equal(resumed.ok, true);
   assert.equal(resumed.playerId, created.playerId);
@@ -19,7 +23,7 @@ test("grace cutoff is exclusive and releases reserved seats at the exact deadlin
   assert.equal(registry.removeConnection("old"), null);
   assert.equal(registry.sessionForConnection("new").playerId, created.playerId);
   registry.removeConnection("new");
-  now = 59_999;
+  now = 2 * RECONNECT_GRACE_MS - 1;
   assert.equal(registry.resumeRoom("ABC234", resumed.reconnectToken, "boundary").code, "invalid_reconnect");
   assert.equal(registry.publicSnapshot("ABC234"), null);
   assert.equal(registry.roomCount(), 0);
@@ -41,7 +45,7 @@ test("reserved seats count toward capacity; explicit leave and legacy close rele
   assert.equal(registry.joinRoom(ada.roomCode, "Eli", "e").ok, true);
   registry.removeConnection("e");
   assert.equal(registry.publicSnapshot(ada.roomCode).player_count, 3);
-  now = 30_000;
+  now = RECONNECT_GRACE_MS;
   assert.deepEqual(registry.expireReservations(), []);
 });
 
@@ -53,9 +57,9 @@ test("a full room accepts a new seat exactly when a reservation expires", () => 
     registry.joinRoom(created.roomCode, name, id);
   }
   registry.removeConnection("a");
-  now = 29_999;
+  now = RECONNECT_GRACE_MS - 1;
   assert.equal(registry.joinRoom(created.roomCode, "Eli", "e").code, "room_full");
-  now = 30_000;
+  now = RECONNECT_GRACE_MS;
   assert.equal(registry.joinRoom(created.roomCode, "Eli", "e").ok, true);
   assert.deepEqual(registry.publicSnapshot(created.roomCode).player_names, ["Ben", "Cy", "Dee", "Eli"]);
 });
@@ -70,7 +74,7 @@ test("token is a private bearer credential and survives neither expiry nor autho
   assert.equal(registry.resumeRoom("DEF234", created.reconnectToken, "wrong").code, "invalid_reconnect");
   assert.equal(new RoomRegistry().resumeRoom("ABC234", created.reconnectToken, "after-restart").code, "invalid_reconnect");
   registry.removeConnection("a");
-  now = 30_000;
+  now = RECONNECT_GRACE_MS;
   assert.deepEqual(registry.expireReservations(), ["ABC234"]);
   assert.equal(registry.publicSnapshot("ABC234"), null);
   assert.equal(registry.resumeRoom("ABC234", created.reconnectToken, "late").code, "invalid_reconnect");

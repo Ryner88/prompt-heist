@@ -55,7 +55,7 @@ The token is a 32-byte cryptographically random bearer credential encoded as 43 
 
 If the connection is lost after the server commits a resume but before the client receives the new token, the old token cannot be used on another connection. The seat remains reserved for its normal grace period after the replacement socket closes, then expires. This favors immediate replay protection over recovery from an ambiguous lost reply; the client must not claim recovery succeeded without receiving the direct result. A retry with the same request ID on the *same live connection* can return the cached result. Cross-connection retry of a consumed token is intentionally rejected.
 
-An opted-in seat remains reserved for 30 seconds after an unplanned disconnect. Resume is permitted only while `now < expires_at`; at `now >= expires_at`, the token is rejected and the seat is released. Reserved seats still count toward the four-player capacity and appear in the public roster until expiry. The service uses a monotonic clock, sweeps expired seats, and checks expiry before processing commands. A process restart loses all rooms and tokens.
+An opted-in seat remains reserved for two minutes after an unplanned disconnect. Resume is permitted only while `now < expires_at`; at `now >= expires_at`, the token is rejected and the seat is released. Reserved seats still count toward the four-player capacity and appear in the public roster until expiry. The service uses a monotonic clock, sweeps expired seats, and checks expiry before processing commands. A process restart loses all rooms and tokens.
 
 ### `leave_room`
 

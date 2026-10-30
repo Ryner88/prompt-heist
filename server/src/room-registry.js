@@ -4,6 +4,7 @@ import {
   MAX_NAME_LENGTH,
   MAX_PLAYERS_PER_ROOM,
   MIN_NAME_LENGTH,
+  RECONNECT_GRACE_MS,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
 } from "./constants.js";
@@ -24,7 +25,7 @@ export class RoomRegistry {
   #matchRandom;
 
   constructor({ codeGenerator = generateRoomCode, idGenerator = randomUUID,
-    tokenGenerator = generateReconnectToken, clock = () => performance.now(), graceMs = 30_000,
+    tokenGenerator = generateReconnectToken, clock = () => performance.now(), graceMs = RECONNECT_GRACE_MS,
     matchRandom = undefined } = {}) {
     this.#codeGenerator = codeGenerator;
     this.#idGenerator = idGenerator;
