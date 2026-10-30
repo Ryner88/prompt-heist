@@ -1044,9 +1044,8 @@ func _show_online_accusation(snapshot: Dictionary) -> void:
 		accuse.disabled = not multiplayer_flow.can_act()
 		accuse.pressed.connect(func() -> void:
 			_show_mobile_overlay("Confirm private accusation", "Accuse %s of being the Informant?" % suspect_name, "Yes, accuse", func() -> void:
-				accuse.disabled = true
 				if not multiplayer_flow.accuse(suspect_seat):
-					accuse.disabled = false
+					status_label.text = "Could not submit that accusation. Please try again."
 			, "No")
 		)
 		suspects.add_child(accuse)
