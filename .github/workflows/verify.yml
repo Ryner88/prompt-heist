@@ -56,6 +56,10 @@ jobs:
         run: >-
           "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
           --headless --path . --quit-after 2
+      - name: Mobile role privacy smoke test
+        run: >-
+          "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          --headless --path . --script res://tests/mobile_ui_smoke_test.gd
       - name: Real Node and Godot WebSocket integration
         run: |
           npm ci
