@@ -87,7 +87,7 @@ func poll_transport() -> void:
 			_connected = true
 			if has_recovery():
 				recovery_started.emit()
-				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token, "sync": true, "game": true}):
+				if not _send_command("resume_room", {"room_code": reconnect_room_code, "reconnect_token": reconnect_token, "sync": true, "game": true, "presence": true}):
 					disconnect_from_service(false)
 					disconnected.emit("Could not request room recovery. Connect again to retry.")
 			else:
@@ -108,7 +108,7 @@ func poll_transport() -> void:
 			_handle_disconnect("The room service disconnected. Retry to recover your reserved seat." if reason.is_empty() else "The room service disconnected. Retry to recover your reserved seat.")
 
 func create_room(display_name: String) -> bool:
-	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true, "sync": true, "game": true})
+	return _send_command("create_room", {"display_name": Protocol.normalize_name(display_name), "reconnect": true, "sync": true, "game": true, "presence": true})
 
 func join_room(room_code: String, display_name: String) -> bool:
 	return _send_command("join_room", {
@@ -117,6 +117,7 @@ func join_room(room_code: String, display_name: String) -> bool:
 		"reconnect": true,
 		"sync": true,
 		"game": true,
+		"presence": true,
 	})
 
 func leave_room() -> bool:
@@ -124,10 +125,10 @@ func leave_room() -> bool:
 		return false
 	return _send_command("leave_room", {})
 
-func start_match() -> bool:
+func start_match(drop_disconnected: bool = false) -> bool:
 	if active_room_code.is_empty():
 		return false
-	return _send_command("start_match", {})
+	return _send_command("start_match", {"drop_disconnected": true} if drop_disconnected else {})
 
 func ready_step(phase: String, round_number: int) -> bool:
 	if active_room_code.is_empty() or not Protocol.READY_PHASES.has(phase):

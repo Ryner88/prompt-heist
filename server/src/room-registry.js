@@ -35,7 +35,7 @@ export class RoomRegistry {
     this.#matchRandom = matchRandom;
   }
 
-  createRoom(displayName, connectionId, { reconnect = false, sync = false, game = false } = {}) {
+  createRoom(displayName, connectionId, { reconnect = false, sync = false, game = false, presence = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -54,7 +54,7 @@ export class RoomRegistry {
     }
     if (!roomCode) return failure("room_code_unavailable");
 
-    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect, sync, game);
+    const player = this.#makePlayer(normalized, connectionId, roomCode, reconnect, sync, game, presence);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
     this.#rooms.set(roomCode, { roomCode, players: [player], revision: 1, match: null, matchRevision: 0 });
@@ -62,7 +62,7 @@ export class RoomRegistry {
     return success(roomCode, player, this.publicSnapshot(roomCode), token);
   }
 
-  joinRoom(roomCode, displayName, connectionId, { reconnect = false, sync = false, game = false } = {}) {
+  joinRoom(roomCode, displayName, connectionId, { reconnect = false, sync = false, game = false, presence = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -81,7 +81,7 @@ export class RoomRegistry {
       return failure("duplicate_name");
     }
 
-    const player = this.#makePlayer(normalized, connectionId, code, reconnect, sync, game);
+    const player = this.#makePlayer(normalized, connectionId, code, reconnect, sync, game, presence);
     const token = reconnect ? this.#issueToken(player) : null;
     if (reconnect && !token) return failure("reconnect_token_unavailable");
     room.players.push(player);
@@ -108,7 +108,7 @@ export class RoomRegistry {
     return this.#dropPlayer(session);
   }
 
-  resumeRoom(roomCode, token, connectionId, { sync = false, game = false } = {}) {
+  resumeRoom(roomCode, token, connectionId, { sync = false, game = false, presence = false } = {}) {
     this.expireReservations();
     if (this.#retiredConnections.has(connectionId) || this.#sessions.has(connectionId)) {
       return failure("connection_already_joined");
@@ -130,6 +130,7 @@ export class RoomRegistry {
     player.connectionId = connectionId;
     player.sync = sync;
     player.game = game;
+    player.presence = presence;
     player.expiresAt = null;
     player.sessionId = this.#idGenerator();
     this.#sessions.set(connectionId, player);
@@ -147,21 +148,25 @@ export class RoomRegistry {
     return { ok: true, roomCode: player.roomCode, snapshot: removal.snapshot };
   }
 
-  startMatch(connectionId) {
+  startMatch(connectionId, { dropDisconnected = false } = {}) {
     this.expireReservations();
     const player = this.#sessions.get(connectionId);
     if (!player || player.connectionId !== connectionId) return failure("not_in_room");
     const room = this.#rooms.get(player.roomCode);
     if (room.match?.holdsRoom) return failure("match_in_progress");
     if (room.players.length < MIN_MATCH_PLAYERS) return failure("not_enough_players");
-    if (room.players.some((member) => !member.connectionId)) return failure("players_disconnected");
-    if (room.players.some((member) => !member.game)) return failure("incompatible_client");
+    const connected = room.players.filter((member) => member.connectionId);
+    if (!dropDisconnected && connected.length !== room.players.length) return failure("players_disconnected");
+    if (dropDisconnected && connected.length < MIN_MATCH_PLAYERS) return failure("not_enough_players");
+    if (connected.some((member) => !member.game)) return failure("incompatible_client");
+    const disconnected = dropDisconnected ? room.players.filter((member) => !member.connectionId) : [];
+    for (const member of disconnected) this.#dropPlayer(member);
     room.match = new HeistMatch(
       room.players.map((member) => ({ playerId: member.playerId, name: member.displayName })),
       this.#matchRandom ? { random: this.#matchRandom } : {},
     );
     room.matchRevision += 1;
-    return { ok: true, roomCode: room.roomCode };
+    return { ok: true, roomCode: room.roomCode, rosterChanged: disconnected.length > 0 };
   }
 
   /**
@@ -226,7 +231,7 @@ export class RoomRegistry {
     return [...changed];
   }
 
-  publicSnapshot(roomCode, { revision = false } = {}) {
+  publicSnapshot(roomCode, { revision = false, presence = false } = {}) {
     const room = this.#rooms.get(roomCode);
     if (!room) return null;
     return {
@@ -235,6 +240,7 @@ export class RoomRegistry {
       player_count: room.players.length,
       max_players: MAX_PLAYERS_PER_ROOM,
       ...(revision ? { revision: room.revision } : {}),
+      ...(presence ? { connected: room.players.map((player) => Boolean(player.connectionId)) } : {}),
     };
   }
 
@@ -258,7 +264,7 @@ export class RoomRegistry {
     return new Set(room.players.map((member) => member.playerId));
   }
 
-  #makePlayer(displayName, connectionId, roomCode, reconnectable, sync, game) {
+  #makePlayer(displayName, connectionId, roomCode, reconnectable, sync, game, presence) {
     const player = {
       playerId: this.#idGenerator(),
       sessionId: this.#idGenerator(),
@@ -268,6 +274,7 @@ export class RoomRegistry {
       reconnectable,
       sync,
       game,
+      presence,
       expiresAt: null,
     };
     return player;

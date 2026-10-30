@@ -756,22 +756,31 @@ func _show_online_lobby() -> void:
 	count.text = "%d / %d players" % [snapshot.player_count, snapshot.max_players]
 	count.add_theme_font_size_override("font_size", 22)
 	content.add_child(count)
-	for player_name in snapshot.player_names:
+	var connected_seats: Array = snapshot.get("connected", [])
+	var disconnected_names: Array[String] = []
+	for index in snapshot.player_names.size():
+		var player_name: String = snapshot.player_names[index]
+		var is_connected: bool = connected_seats.is_empty() or bool(connected_seats[index])
 		var player_label := Label.new()
-		player_label.text = "• %s" % player_name
+		player_label.text = "%s (connected)" % player_name if is_connected else "%s (disconnected)" % player_name
 		player_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		player_label.add_theme_font_size_override("font_size", 21)
+		player_label.add_theme_color_override("font_color", Color("e6ebf2") if is_connected else Color("f4c95d"))
 		content.add_child(player_label)
+		if not is_connected:
+			disconnected_names.append(player_name)
 	var can_start: bool = snapshot.player_count >= 3
 	var waiting_status := Label.new()
-	if snapshot.player_count == snapshot.max_players:
+	if not disconnected_names.is_empty():
+		waiting_status.text = "%s: return to the original game tab to reconnect. The seat is held for up to 2 minutes." % ", ".join(disconnected_names)
+	elif snapshot.player_count == snapshot.max_players:
 		waiting_status.text = "Room full. Anyone can start the heist; four players adds a hidden Informant."
 	elif can_start:
 		waiting_status.text = "Ready for a cooperative heist, or wait for a fourth player to add a hidden Informant."
 	else:
 		waiting_status.text = "Waiting for more players… At least three are needed."
 	waiting_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	waiting_status.add_theme_color_override("font_color", Color("62d6a7") if can_start else Color("8fa3bf"))
+	waiting_status.add_theme_color_override("font_color", Color("f4c95d") if not disconnected_names.is_empty() else Color("62d6a7") if can_start else Color("8fa3bf"))
 	content.add_child(waiting_status)
 	var start_heist := Button.new()
 	start_heist.text = "Start heist"
@@ -785,6 +794,22 @@ func _show_online_lobby() -> void:
 			start_heist.text = "Start heist"
 	)
 	content.add_child(start_heist)
+	if multiplayer_flow.can_start_match(true):
+		var start_connected := Button.new()
+		start_connected.text = "Start with %d connected players" % connected_seats.count(true)
+		start_connected.custom_minimum_size = Vector2(0, 48)
+		start_connected.pressed.connect(func() -> void:
+			start_connected.disabled = true
+			start_connected.text = "Starting…"
+			if not multiplayer_flow.start_match(true):
+				start_connected.disabled = false
+				start_connected.text = "Start with %d connected players" % connected_seats.count(true)
+		)
+		content.add_child(start_connected)
+		var start_note := Label.new()
+		start_note.text = "This removes disconnected seats. Three players play a cooperative heist without an Informant."
+		start_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(start_note)
 	var connection := Label.new()
 	connection.text = "● Connected"
 	connection.add_theme_color_override("font_color", Color("62d6a7"))

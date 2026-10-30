@@ -34,11 +34,12 @@ func run() -> void:
 	_test_expired_recovery_returns_to_entry()
 	_test_match_progression_and_abandonment()
 	_test_online_controls_recover_after_match_and_start_error()
+	_test_disconnected_lobby_start_controls()
 	allocated_nodes.reverse()
 	for node in allocated_nodes:
 		node.free()
 	if failures.is_empty():
-		print("MultiplayerFlow tests passed: 9 cases")
+		print("MultiplayerFlow tests passed: 10 cases")
 	else:
 		for failure in failures:
 			push_error(failure)
@@ -272,6 +273,28 @@ func _test_online_controls_recover_after_match_and_start_error() -> void:
 	if not fixture.transport.sent.is_empty():
 		var vote_request: Dictionary = JSON.parse_string(fixture.transport.sent.back())
 		_check(vote_request.type == "cast_vote" and not vote_request.payload.has("sabotage"), "A crew vote does not include the stale sabotage choice")
+
+func _test_disconnected_lobby_start_controls() -> void:
+	var main = MainScript.new()
+	allocated_nodes.append(main)
+	main._build_shell()
+	main._initialize_multiplayer()
+	main.multiplayer_flow.state = FlowScript.State.LOBBY
+	main.multiplayer_flow.lobby_snapshot = {
+		"room_code": "ABC234", "player_names": ["Ada", "Ben", "Cy", "Dee"],
+		"player_count": 4, "max_players": 4, "connected": [true, true, true, false],
+	}
+	main._render_multiplayer_state()
+	_check(not main.multiplayer_flow.can_start_match() and main.multiplayer_flow.can_start_match(true), "A disconnected fourth seat blocks four-player start but allows an explicit three-player start")
+	var start_button: Button = _active_start_button(main)
+	_check(start_button != null and start_button.disabled, "Normal Start heist stays disabled while a seat is disconnected")
+	var connected_buttons: Array = main.content.find_children("*", "Button", true, false).filter(func(button: Button) -> bool: return button.text == "Start with 3 connected players")
+	_check(connected_buttons.size() == 1, "Lobby offers a clear three-player start option")
+	var offline_labels: Array = main.content.find_children("*", "Label", true, false).filter(func(label: Label) -> bool: return label.text.contains("Dee (disconnected)"))
+	_check(offline_labels.size() == 1, "Lobby identifies the disconnected player")
+	main.multiplayer_flow.lobby_snapshot.connected = [true, true, false, false]
+	main._render_multiplayer_state()
+	_check(not main.multiplayer_flow.can_start_match(true), "Fewer than three online players cannot start")
 
 func _active_start_button(main: Control) -> Button:
 	for child in main.content.get_children():

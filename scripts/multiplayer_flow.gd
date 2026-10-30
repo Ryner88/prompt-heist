@@ -86,15 +86,20 @@ func leave_lobby() -> void:
 		_set_state(previous)
 		_set_feedback("Could not send the leave request. Please try again.")
 
-func can_start_match() -> bool:
-	return state == State.LOBBY and not client.has_pending_request() \
-		and int(lobby_snapshot.get("player_count", 0)) >= 3
+func can_start_match(drop_disconnected: bool = false) -> bool:
+	if state != State.LOBBY or client.has_pending_request():
+		return false
+	var connected: Array = lobby_snapshot.get("connected", [])
+	if connected.is_empty():
+		return not drop_disconnected and int(lobby_snapshot.get("player_count", 0)) >= 3
+	var online_count := connected.count(true)
+	return online_count >= 3 and (online_count < connected.size() if drop_disconnected else online_count == connected.size())
 
-func start_match() -> bool:
-	if not can_start_match():
+func start_match(drop_disconnected: bool = false) -> bool:
+	if not can_start_match(drop_disconnected):
 		return false
 	_set_feedback("")
-	return client.start_match()
+	return client.start_match(drop_disconnected)
 
 ## True while this player still owes the current step an action.
 func can_act() -> bool:
