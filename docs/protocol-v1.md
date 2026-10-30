@@ -79,7 +79,7 @@ Every heist command is answered with a private `command_result` whose payload is
 {"version":1,"type":"accuse","request_id":"a1","payload":{"suspect_seat":2}}
 ```
 
-- `start_match` requires three or four seats, all connected and game-capable, and no heist in play or recap open in the room. Any seated member may start. Three seats play cooperatively; four seats include one hidden Informant.
+- `start_match` normally requires three or four seats, all connected and game-capable, and no heist in play or recap open in the room. Any seated member may start. A client can explicitly send `{"drop_disconnected":true}` to remove reserved disconnected seats before starting, provided at least three game-capable players remain connected. This invalidates the removed seats' recovery tokens. Three seats play cooperatively; four seats include one hidden Informant.
 - `ready` acknowledges one pacing step: `role_reveal`, `briefing`, `planning`, or `resolution`. The step advances when every seat is ready. Repeating readiness for the current step is accepted without change.
 - `ready` with phase `finished` asks to leave the recap (Play Again). When every seat still in the room has asked, the match becomes `closed`: the recap and all private match state are cleared, and the room accepts joins and a new `start_match` with the same room code and seats. Seats that left after the recap do not block the return.
 - `cast_vote` is accepted once per seat per round. `sabotage:true` is accepted only from the Informant, once per match, together with that seat's vote. The round resolves when every seat has voted.
@@ -116,6 +116,8 @@ Every heist command is answered with a private `command_result` whose payload is
 ```
 
 For a client using `"sync":true`, the same snapshot also contains `"revision":1` (a positive integer). The room service increments the revision on create, join, leave, disconnect, resume, and reservation expiry; rejected or duplicate commands do not change it. A client accepts only a snapshot for its active room with a revision greater than the last one it accepted on that connection. Revisions restart with a newly created room and must not be treated as identity or authorization. After a client resumes, the service sends the current full roster. It also rebroadcasts each occupied room's current snapshot every five seconds, allowing a connected client to recover a missed update without inventing room state. Expired seats are swept before the periodic rebroadcast; the maximum normal expiry-display lag is one second.
+
+Clients that additionally send `"presence":true` with create, join, or resume receive a `"connected"` array of booleans alongside the revision. It aligns with `player_names` and updates on disconnect, resume, and removal. Clients without this capability keep the previous snapshot shape. The waiting room uses the array to identify an offline player and offer an explicit start with three connected players.
 
 Room snapshots never contain roles, sabotage choices, votes before reveal, session or reconnect tokens, connection IDs, or server-only game state.
 

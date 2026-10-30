@@ -95,13 +95,13 @@ func _test_create_join_envelopes_and_unique_ids() -> void:
 	_check(not fixture.client.create_room("Ada"), "A second submission while pending must be rejected")
 	var create_message: Dictionary = JSON.parse_string(fixture.transport.sent[0])
 	_check(create_message.version == 2 and create_message.type == "create_room", "Create must use protocol-v2 envelope")
-	_check(create_message.payload == {"display_name": "Ada", "reconnect": true, "sync": true, "game": true}, "Create name and recovery/sync/game capabilities must be normalized")
+	_check(create_message.payload == {"display_name": "Ada", "reconnect": true, "sync": true, "game": true, "presence": true}, "Create name and capabilities must be normalized")
 	_check(Protocol.is_safe_request_id(create_message.request_id), "Create request ID must be safe")
 	fixture.client.ingest_server_text(_error(create_message.request_id, "unknown_room"), fixture.client.connection_generation)
 	_check(fixture.client.join_room(" abc234 ", " Ａｄａ "), "Join should send after the first request resolves")
 	var join_message: Dictionary = JSON.parse_string(fixture.transport.sent[1])
 	_check(join_message.type == "join_room", "Join must use the join command")
-	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada", "reconnect": true, "sync": true, "game": true}, "Join code, name, and recovery/sync/game capabilities must be normalized")
+	_check(join_message.payload == {"room_code": "ABC234", "display_name": "Ada", "reconnect": true, "sync": true, "game": true, "presence": true}, "Join code, name, and capabilities must be normalized")
 	_check(create_message.request_id != join_message.request_id, "Every command must receive a unique request ID")
 
 func _test_response_correlation_identity_and_privacy() -> void:
@@ -174,6 +174,15 @@ func _test_snapshot_validation_and_room_isolation() -> void:
 	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"], 1), fixture.client.connection_generation)
 	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada", "Ben"], 2, 2), fixture.client.connection_generation)
 	_check(snapshots.size() == 2 and snapshots.back().player_count == 2, "Older and duplicate revisions must not roll the lobby back")
+	var presence_snapshot: Dictionary = JSON.parse_string(_snapshot("ABC234", ["Ada", "Ben"], 2, 3))
+	presence_snapshot.payload.connected = [true, false]
+	fixture.client.ingest_server_text(JSON.stringify(presence_snapshot), fixture.client.connection_generation)
+	_check(snapshots.size() == 3 and snapshots.back().connected == [true, false], "Opted-in lobby snapshots must show disconnected seats")
+	var bad_presence: Dictionary = presence_snapshot.duplicate(true)
+	bad_presence.payload.revision = 4
+	bad_presence.payload.connected = [true, "false"]
+	fixture.client.ingest_server_text(JSON.stringify(bad_presence), fixture.client.connection_generation)
+	_check(snapshots.size() == 3, "Non-boolean presence must be rejected")
 	fixture.client.ingest_server_text(_snapshot("ABC234", ["Ada"], 2), fixture.client.connection_generation)
 	var invalid_type: Dictionary = JSON.parse_string(_snapshot("ABC234", ["Ada"], 1))
 	invalid_type.payload.room_code = 123456
@@ -182,8 +191,8 @@ func _test_snapshot_validation_and_room_isolation() -> void:
 	invalid_revision.payload.revision = -1
 	fixture.client.ingest_server_text(JSON.stringify(invalid_revision), fixture.client.connection_generation)
 	fixture.client.ingest_server_text(_snapshot("XYZ789", ["Mallory"], 1), fixture.client.connection_generation)
-	_check(snapshots.size() == 2, "Invalid and different-room snapshots must not alter the active lobby")
-	_check(warnings.size() == 5, "Rejected snapshots should produce safe protocol warnings")
+	_check(snapshots.size() == 3, "Invalid and different-room snapshots must not alter the active lobby")
+	_check(warnings.size() == 6, "Rejected snapshots should produce safe protocol warnings")
 	fixture.client.ingest_server_text(JSON.stringify({"version": 2, "type": "server_shutdown", "request_id": null, "payload": {"reason": "service_restart"}}), fixture.client.connection_generation)
 	_check(not fixture.client.is_connected_to_service() and fixture.client.session_id.is_empty(), "Valid shutdown must clear private identity")
 	var join_fixture := _connected_client()

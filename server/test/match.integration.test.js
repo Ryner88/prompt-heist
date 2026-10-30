@@ -8,7 +8,7 @@ import { command, connectClient, startTestServer } from "./helpers.js";
 const zero = () => 0;
 const CAPABILITIES = { reconnect: true, sync: true, game: true };
 
-async function gameRoom(t, count, { registryOptions = {}, serverOptions = {} } = {}) {
+async function gameRoom(t, count, { registryOptions = {}, serverOptions = {}, presence = false } = {}) {
   const registry = new RoomRegistry({ matchRandom: zero, ...registryOptions });
   const server = await startTestServer({ registry, ...serverOptions });
   t.after(() => server.service.close());
@@ -19,7 +19,8 @@ async function gameRoom(t, count, { registryOptions = {}, serverOptions = {} } =
     const client = await connectClient(server.websocketUrl);
     t.after(() => client.close());
     const type = roomCode ? "join_room" : "create_room";
-    const payload = roomCode ? { room_code: roomCode, display_name: name, ...CAPABILITIES } : { display_name: name, ...CAPABILITIES };
+    const payload = roomCode ? { room_code: roomCode, display_name: name, ...CAPABILITIES, ...(presence ? { presence: true } : {}) }
+      : { display_name: name, ...CAPABILITIES, ...(presence ? { presence: true } : {}) };
     client.send(command(type, `${name}-enter`, payload));
     const result = await client.next((message) => message.request_id === `${name}-enter`);
     assert.equal(result.type, "command_result", JSON.stringify(result));
@@ -61,6 +62,38 @@ async function allVote(clients, round, planId) {
     assert.equal(result.type, "command_result", JSON.stringify(result));
   }
 }
+
+test("a disconnected fourth seat is identified and three connected players may explicitly start", async (t) => {
+  const { clients, roomCode, server } = await gameRoom(t, 4, { presence: true });
+  const [ada, ben, cy, dee] = clients;
+  const token = dee.token;
+  await dee.close();
+  const offline = await ada.next((message) => message.type === "room_snapshot"
+    && message.payload.connected?.join() === "true,true,true,false");
+  assert.deepEqual(offline.payload.player_names, ["Ada", "Ben", "Cy", "Dee"]);
+  assert.equal((await send(ada, "start_match")).payload.code, "players_disconnected");
+  const started = await send(ada, "start_match", { drop_disconnected: true });
+  assert.deepEqual(started.payload, { command: "start_match", room_code: roomCode });
+  const trimmed = await ada.next((message) => message.type === "room_snapshot"
+    && message.payload.player_count === 3 && message.payload.connected?.every(Boolean));
+  assert.deepEqual(trimmed.payload.player_names, ["Ada", "Ben", "Cy"]);
+  const match = await latest(ben, "match_snapshot", phaseIs("role_reveal"));
+  assert.equal(match.payload.mode, "cooperative");
+  assert.deepEqual(match.payload.seats.map((seat) => seat.name), ["Ada", "Ben", "Cy"]);
+  const retry = await connectClient(server.websocketUrl);
+  t.after(() => retry.close());
+  retry.send(command("resume_room", "old-token", { room_code: roomCode, reconnect_token: token, sync: true, game: true, presence: true }));
+  assert.equal((await retry.next((message) => message.request_id === "old-token")).payload.code, "invalid_reconnect");
+});
+
+test("explicit start preserves the room when fewer than three players are connected", async (t) => {
+  const { clients, roomCode, registry } = await gameRoom(t, 4, { presence: true });
+  await Promise.all([clients[2].close(), clients[3].close()]);
+  const rejected = await send(clients[0], "start_match", { drop_disconnected: true });
+  assert.equal(rejected.payload.code, "not_enough_players");
+  assert.deepEqual(registry.publicSnapshot(roomCode).player_names, ["Ada", "Ben", "Cy", "Dee"]);
+  assert.equal(registry.publicMatchSnapshot(roomCode), null);
+});
 
 test("four browsers play a complete social match with private roles and a correct accusation", async (t) => {
   const { clients, roomCode, server } = await gameRoom(t, 4);

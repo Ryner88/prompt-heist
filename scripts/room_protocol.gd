@@ -148,6 +148,8 @@ static func validate_snapshot(payload: Variant) -> bool:
 	if not payload is Dictionary:
 		return false
 	var expected := ["room_code", "player_names", "player_count", "max_players", "revision"]
+	if payload.has("connected"):
+		expected.append("connected")
 	if payload.keys().size() != expected.size():
 		return false
 	for key in expected:
@@ -161,6 +163,12 @@ static func validate_snapshot(payload: Variant) -> bool:
 	var max_players := int(payload.max_players)
 	if player_count != payload.player_names.size() or max_players != 4:
 		return false
+	if payload.has("connected"):
+		if not payload.connected is Array or payload.connected.size() != player_count:
+			return false
+		for connection_state in payload.connected:
+			if not connection_state is bool:
+				return false
 	if player_count < 0 or player_count > max_players:
 		return false
 	if int(payload.revision) < 1:

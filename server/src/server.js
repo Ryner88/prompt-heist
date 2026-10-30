@@ -190,6 +190,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       }
       if (MATCH_COMMANDS.has(message.type)) {
         if (result.changed === false) return;
+        if (result.rosterChanged) broadcastSnapshot(result.roomCode);
         broadcastMatch(result.roomCode);
         const match = registry.publicMatchSnapshot(result.roomCode);
         if (message.type === "start_match") logger("match_started", { players: match.seats.length, mode: match.mode });
@@ -205,7 +206,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
 
   function dispatch(context, message) {
     const { payload } = message;
-    const capabilities = { sync: payload.sync === true, game: payload.game === true };
+    const capabilities = { sync: payload.sync === true, game: payload.game === true, presence: payload.presence === true };
     switch (message.type) {
       case "create_room":
         if (registry.sessionForConnection(context.connectionId)) return { ok: false, code: "connection_already_joined" };
@@ -223,7 +224,7 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
       case "leave_room":
         return registry.leaveRoom(context.connectionId);
       case "start_match":
-        return registry.startMatch(context.connectionId);
+        return registry.startMatch(context.connectionId, { dropDisconnected: payload.drop_disconnected === true });
       case "ready":
         return registry.matchAction(context.connectionId, (match, playerId) => match.ready(playerId, payload.phase, payload.round));
       case "cast_vote":
@@ -264,11 +265,12 @@ export function createPromptHeistServer({ registry = new RoomRegistry(), logger 
     const legacy = registry.publicSnapshot(roomCode);
     if (!legacy) return;
     const revisioned = registry.publicSnapshot(roomCode, { revision: true });
+    const withPresence = registry.publicSnapshot(roomCode, { revision: true, presence: true });
     for (const connectionId of registry.connectionIdsForRoom(roomCode)) {
       const context = connections.get(connectionId);
       if (context) {
         const session = registry.sessionForConnection(connectionId);
-        send(context.websocket, response("room_snapshot", session?.sync ? revisioned : legacy));
+        send(context.websocket, response("room_snapshot", session?.presence ? withPresence : session?.sync ? revisioned : legacy));
       }
     }
   }

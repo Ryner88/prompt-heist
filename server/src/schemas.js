@@ -59,6 +59,7 @@ export const clientMessageSchemas = {
       reconnect: { const: true },
       sync: { const: true },
       game: { const: true },
+      presence: { const: true },
     },
   }),
   join_room: envelope("join_room", {
@@ -71,6 +72,7 @@ export const clientMessageSchemas = {
       reconnect: { const: true },
       sync: { const: true },
       game: { const: true },
+      presence: { const: true },
     },
   }),
   resume_room: envelope("resume_room", {
@@ -82,10 +84,14 @@ export const clientMessageSchemas = {
       reconnect_token: reconnectToken,
       sync: { const: true },
       game: { const: true },
+      presence: { const: true },
     },
   }),
   leave_room: envelope("leave_room", emptyPayload),
-  start_match: envelope("start_match", emptyPayload),
+  start_match: envelope("start_match", {
+    type: "object", additionalProperties: false, required: [],
+    properties: { drop_disconnected: { const: true } },
+  }),
   ready: envelope("ready", {
     type: "object",
     additionalProperties: false,
